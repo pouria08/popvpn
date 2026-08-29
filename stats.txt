@@ -1,1 +1,1 @@
-Total Active: 551 | VLESS: 315 | VMESS: 63 | TROJAN: 53 | SHADOWSOCKS: 120
+Total Active: 399 | VLESS: 370 | VMESS: 0 | TROJAN: 29 | SHADOWSOCKS: 0 | Links: 5 | Successful: 4 | Failed: 1
