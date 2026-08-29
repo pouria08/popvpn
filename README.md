@@ -289,25 +289,6 @@ schedule:
 💾 Commit Changes
 ```
 
----
-
-# 🌐 منابع ورودی فعلی
-
-منابعی که در `links.txt` تعریف شده‌اند:
-
-```text
-https://raw.githubusercontent.com/RKPchannel/RKP_bypass_configs/refs/heads/main/whitelist.txt
-
-https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt
-
-https://raw.githubusercontent.com/pouria08/popvip/refs/heads/master/Eternity.txt
-
-https://9dz4quexuuos.javad-ghoreyshi11.workers.dev/feed/pouria2
-```
-
-> برای اضافه کردن Source جدید، کافی است URL را در `links.txt` در یک خط جداگانه قرار دهید و Workflow را اجرا کنید.
-
----
 
 # 🛠️ ساختار پروژه
 
