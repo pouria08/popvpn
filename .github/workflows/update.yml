@@ -1,43 +1,89 @@
 name: Auto Update Subscriptions
 
 on:
+  # اجرای خودکار یک بار در هر ساعت
+  # دقیقه 17 انتخاب شده تا از شلوغی رأس ساعت جلوگیری شود.
   schedule:
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
+
+  # امکان اجرای دستی از GitHub Actions
   workflow_dispatch:
+
+# اجازه لازم برای Commit کردن فایل‌های جدید
+permissions:
+  contents: write
+
+# جلوگیری از اجرای همزمان چند آپدیت
+concurrency:
+  group: auto-update-subscriptions
+  cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
     steps:
+
+      # دریافت آخرین نسخه Repository
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
+      # نصب Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
+          cache: 'pip'
 
+      # نصب وابستگی‌ها
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
 
-      - name: Run script
+      # اجرای اسکریپت آپدیت
+      - name: Run update script
         run: |
           python main.py
 
-      - name: Read stats
-        id: stats
+      # بررسی اینکه خروجی‌ها واقعاً ساخته شده‌اند
+      - name: Verify generated files
         run: |
-          if [ -f stats.txt ]; then
-            STATS=$(cat stats.txt)
-            echo "stats_content=$STATS" >> $GITHUB_ENV
-          else
-            echo "stats_content=Hourly update" >> $GITHUB_ENV
-          fi
+          test -f working_configs.txt
+          test -f base64.txt
+          test -f stats.txt
 
+          echo "================================"
+          echo "UPDATE RESULT"
+          echo "================================"
+
+          cat stats.txt
+
+          echo "================================"
+
+      # Commit فقط در صورت تغییر
       - name: Commit and push if changed
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          git add working_configs.txt base64.txt outputs/ stats.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-Update: ${{ env.stats_content }}" && git push)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add working_configs.txt
+          git add base64.txt
+          git add outputs/
+          git add stats.txt
+
+          if git diff --cached --quiet; then
+            echo "No changes detected."
+            echo "Nothing to commit."
+            exit 0
+          fi
+
+          STATS="$(cat stats.txt | tr '\n' ' ' | cut -c1-200)"
+
+          git commit -m "Auto-Update: ${STATS}"
+
+          git push
