@@ -6,6 +6,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
+# ============================================================
+# POPVPN CONFIGURATION
+# ============================================================
+
 LINKS_FILE = "links.txt"
 OUTPUT_DIR = "outputs"
 
@@ -13,11 +17,37 @@ MAIN_CONFIG_FILE = "working_configs.txt"
 MAIN_BASE64_FILE = "base64.txt"
 STATS_FILE = "stats.txt"
 
+# ============================================================
+# HIDDIFY PROFILE SETTINGS
+# ============================================================
+
+PROFILE_TITLE = "POPVPN"
+
+# Hiddify will automatically update this subscription every 1 hour.
+PROFILE_UPDATE_INTERVAL = "1"
+
+# Very large value for unlimited traffic compatibility.
+# This is intentionally used instead of total=0 because some
+# Hiddify versions treat total=0 incorrectly.
+UNLIMITED_TOTAL = "10737418240000000"
+
+# Far future timestamp for unlimited expiration compatibility.
+# Hiddify uses this style for effectively unlimited subscriptions.
+UNLIMITED_EXPIRE = "2546249531"
+
+# Optional support / website URLs.
+# Leave empty if you don't want these buttons in Hiddify.
+SUPPORT_URL = ""
+WEB_PAGE_URL = ""
+
+
+# ============================================================
+# HTTP SESSION
+# ============================================================
 
 def create_session():
     """
-    ساخت Session با Retry برای جلوگیری از خراب شدن آپدیت
-    در صورت خطای موقت اینترنت یا سرور.
+    Create HTTP session with retry support.
     """
 
     session = requests.Session()
@@ -27,15 +57,32 @@ def create_session():
         connect=3,
         read=3,
         backoff_factor=2,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET"],
+        status_forcelist=[
+            429,
+            500,
+            502,
+            503,
+            504
+        ],
+        allowed_methods=[
+            "GET"
+        ],
         raise_on_status=False,
     )
 
-    adapter = HTTPAdapter(max_retries=retry_strategy)
+    adapter = HTTPAdapter(
+        max_retries=retry_strategy
+    )
 
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
+    session.mount(
+        "http://",
+        adapter
+    )
+
+    session.mount(
+        "https://",
+        adapter
+    )
 
     session.headers.update({
         "User-Agent": "POPVPN-AutoUpdater/1.0"
@@ -47,9 +94,71 @@ def create_session():
 SESSION = create_session()
 
 
+# ============================================================
+# HIDDIFY METADATA
+# ============================================================
+
+def build_hiddify_headers():
+    """
+    Build Hiddify-compatible metadata.
+
+    These are placed inside the first lines of the generated
+    subscription file because GitHub Pages/raw GitHub cannot
+    provide custom HTTP response headers for us.
+    """
+
+    headers = [
+        f"#profile-title: {PROFILE_TITLE}",
+        f"#profile-update-interval: {PROFILE_UPDATE_INTERVAL}",
+        (
+            "#subscription-userinfo: "
+            "upload=0; "
+            "download=0; "
+            f"total={UNLIMITED_TOTAL}; "
+            f"expire={UNLIMITED_EXPIRE}"
+        )
+    ]
+
+    if SUPPORT_URL:
+        headers.append(
+            f"#support-url: {SUPPORT_URL}"
+        )
+
+    if WEB_PAGE_URL:
+        headers.append(
+            f"#profile-web-page-url: {WEB_PAGE_URL}"
+        )
+
+    headers.append("")
+
+    return headers
+
+
+def add_hiddify_metadata(configs):
+    """
+    Add Hiddify metadata to a list of configs.
+    """
+
+    metadata = build_hiddify_headers()
+
+    return (
+        metadata
+        + configs
+    )
+
+
+# ============================================================
+# FETCH SUBSCRIPTION
+# ============================================================
+
 def fetch_configs_from_url(url):
     """
-    دریافت Subscription از یک URL
+    Download subscription from URL.
+
+    Supports:
+    - Plain text subscriptions
+    - Base64 subscriptions
+    - Hiddify metadata lines
     """
 
     url = url.strip()
@@ -58,7 +167,10 @@ def fetch_configs_from_url(url):
         return []
 
     try:
-        print(f"در حال دریافت: {url}")
+
+        print(
+            f"در حال دریافت: {url}"
+        )
 
         response = SESSION.get(
             url,
@@ -71,26 +183,105 @@ def fetch_configs_from_url(url):
         content = response.text.strip()
 
         if not content:
-            print(f"پاسخ خالی بود: {url}")
+
+            print(
+                f"پاسخ خالی بود: {url}"
+            )
+
             return []
 
-        # بعضی Subscription ها به صورت Base64 هستند.
-        try:
-            decoded = base64.b64decode(
-                content,
-                validate=True
-            ).decode("utf-8")
+        # ----------------------------------------------------
+        # Remove Hiddify metadata from source if present.
+        # We will add our own metadata to the final output.
+        # ----------------------------------------------------
 
-            if decoded.strip():
-                content = decoded
+        cleaned_lines = []
 
-        except Exception:
-            # اگر Base64 نبود، همان متن اصلی استفاده می‌شود.
-            pass
+        for line in content.splitlines():
+
+            line = line.strip()
+
+            if not line:
+                continue
+
+            if line.startswith(
+                "#profile-title:"
+            ):
+                continue
+
+            if line.startswith(
+                "#profile-update-interval:"
+            ):
+                continue
+
+            if line.startswith(
+                "#subscription-userinfo:"
+            ):
+                continue
+
+            if line.startswith(
+                "#support-url:"
+            ):
+                continue
+
+            if line.startswith(
+                "#profile-web-page-url:"
+            ):
+                continue
+
+            if line.startswith("#"):
+                continue
+
+            cleaned_lines.append(
+                line
+            )
+
+        cleaned_content = "\n".join(
+            cleaned_lines
+        ).strip()
+
+        # ----------------------------------------------------
+        # If content is Base64 encoded
+        # ----------------------------------------------------
+
+        if cleaned_content:
+
+            try:
+
+                decoded = base64.b64decode(
+                    cleaned_content,
+                    validate=True
+                ).decode(
+                    "utf-8"
+                )
+
+                decoded_lines = []
+
+                for line in decoded.splitlines():
+
+                    line = line.strip()
+
+                    if not line:
+                        continue
+
+                    if line.startswith("#"):
+                        continue
+
+                    decoded_lines.append(
+                        line
+                    )
+
+                if decoded_lines:
+
+                    cleaned_lines = decoded_lines
+
+            except Exception:
+                # Not Base64, keep original content.
+                pass
 
         configs = []
 
-        for line in content.splitlines():
+        for line in cleaned_lines:
 
             line = line.strip()
 
@@ -100,30 +291,54 @@ def fetch_configs_from_url(url):
             if line.startswith("#"):
                 continue
 
-            configs.append(line)
+            configs.append(
+                line
+            )
 
-        print(f"دریافت شد: {len(configs)} کانفیگ")
+        print(
+            f"دریافت شد: {len(configs)} کانفیگ"
+        )
 
         return configs
 
     except requests.RequestException as e:
-        print(f"خطا در دریافت لینک:")
-        print(f"{url}")
-        print(f"{e}")
+
+        print(
+            "خطا در دریافت لینک:"
+        )
+
+        print(url)
+
+        print(e)
+
         return []
 
     except Exception as e:
-        print(f"خطای غیرمنتظره در {url}: {e}")
+
+        print(
+            f"خطای غیرمنتظره در {url}: {e}"
+        )
+
         return []
 
 
+# ============================================================
+# LOAD LINKS
+# ============================================================
+
 def load_links():
     """
-    خواندن Subscription URL ها از links.txt
+    Read subscription URLs from links.txt.
     """
 
-    if not os.path.exists(LINKS_FILE):
-        print(f"فایل {LINKS_FILE} وجود ندارد.")
+    if not os.path.exists(
+        LINKS_FILE
+    ):
+
+        print(
+            f"فایل {LINKS_FILE} وجود ندارد."
+        )
+
         return []
 
     try:
@@ -146,9 +361,13 @@ def load_links():
                 if line.startswith("#"):
                     continue
 
-                links.append(line)
+                links.append(
+                    line
+                )
 
-        print(f"تعداد لینک‌های Subscription: {len(links)}")
+        print(
+            f"تعداد لینک‌های Subscription: {len(links)}"
+        )
 
         return links
 
@@ -161,18 +380,25 @@ def load_links():
         return []
 
 
+# ============================================================
+# REMOVE DUPLICATES
+# ============================================================
+
 def remove_duplicates(configs):
     """
-    حذف کانفیگ‌های تکراری
+    Remove duplicate configs.
     """
 
     unique_configs = []
+
     seen = set()
 
     for config in configs:
 
-        # حذف اسم بعد از #
-        base = config.split("#", 1)[0].strip()
+        base = config.split(
+            "#",
+            1
+        )[0].strip()
 
         if not base:
             continue
@@ -180,9 +406,13 @@ def remove_duplicates(configs):
         if base in seen:
             continue
 
-        seen.add(base)
+        seen.add(
+            base
+        )
 
-        unique_configs.append(config)
+        unique_configs.append(
+            config
+        )
 
     print(
         f"کانفیگ یکتا: {len(unique_configs)}"
@@ -191,13 +421,15 @@ def remove_duplicates(configs):
     return unique_configs
 
 
+# ============================================================
+# CONFIG VALIDATION
+# ============================================================
+
 def test_and_filter_config(config):
     """
-    فعلاً فقط اعتبار اولیه URI را بررسی می‌کند.
+    Basic protocol validation.
 
-    توجه:
-    تست واقعی Ping/سرعت نیازمند برقراری اتصال
-    توسط کلاینت مربوط به هر پروتکل است.
+    This does NOT establish a real VPN connection.
     """
 
     if not config:
@@ -213,19 +445,25 @@ def test_and_filter_config(config):
         "shadowsocks://",
     )
 
-    return config.startswith(supported_protocols)
+    return config.startswith(
+        supported_protocols
+    )
 
+
+# ============================================================
+# CATEGORIZE CONFIGS
+# ============================================================
 
 def process_and_categorize(configs):
     """
-    دسته‌بندی کانفیگ‌ها بر اساس Protocol
+    Categorize configs by protocol.
     """
 
     categories = {
         "vless": [],
         "vmess": [],
         "trojan": [],
-        "shadowsocks": [],
+        "shadowsocks": []
     }
 
     counters = {
@@ -235,36 +473,55 @@ def process_and_categorize(configs):
 
     for config in configs:
 
-        if not test_and_filter_config(config):
+        if not test_and_filter_config(
+            config
+        ):
             continue
 
         lower_cfg = config.lower()
 
         protocol = None
 
-        if lower_cfg.startswith("vless://"):
+        if lower_cfg.startswith(
+            "vless://"
+        ):
+
             protocol = "vless"
 
-        elif lower_cfg.startswith("vmess://"):
+        elif lower_cfg.startswith(
+            "vmess://"
+        ):
+
             protocol = "vmess"
 
-        elif lower_cfg.startswith("trojan://"):
+        elif lower_cfg.startswith(
+            "trojan://"
+        ):
+
             protocol = "trojan"
 
         elif (
             lower_cfg.startswith("ss://")
-            or lower_cfg.startswith("shadowsocks://")
+            or
+            lower_cfg.startswith(
+                "shadowsocks://"
+            )
         ):
+
             protocol = "shadowsocks"
 
         if protocol is None:
             continue
 
-        # حذف اسم قبلی کانفیگ
-        base_config = config.split("#", 1)[0]
+        # Remove previous name.
+        base_config = config.split(
+            "#",
+            1
+        )[0]
 
         new_name = (
-            f"POP PING | {counters[protocol]}"
+            f"POP PING | "
+            f"{counters[protocol]}"
         )
 
         encoded_name = urllib.parse.quote(
@@ -273,26 +530,41 @@ def process_and_categorize(configs):
         )
 
         final_config = (
-            f"{base_config}#{encoded_name}"
+            f"{base_config}"
+            f"#{encoded_name}"
         )
 
-        categories[protocol].append(
+        categories[
+            protocol
+        ].append(
             final_config
         )
 
-        counters[protocol] += 1
+        counters[
+            protocol
+        ] += 1
 
     return categories
 
 
-def write_file(path, content):
+# ============================================================
+# WRITE FILE
+# ============================================================
+
+def write_file(
+    path,
+    content
+):
     """
-    نوشتن امن فایل خروجی
+    Write UTF-8 file.
     """
 
-    directory = os.path.dirname(path)
+    directory = os.path.dirname(
+        path
+    )
 
     if directory:
+
         os.makedirs(
             directory,
             exist_ok=True
@@ -304,13 +576,18 @@ def write_file(path, content):
         encoding="utf-8"
     ) as f:
 
-        f.write(content)
+        f.write(
+            content
+        )
 
+
+# ============================================================
+# CLEAR OLD OUTPUTS
+# ============================================================
 
 def clear_old_output_files():
     """
-    حذف فایل‌های خروجی قبلی تا کانفیگ‌های قدیمی
-    در صورت صفر شدن نتایج باقی نمانند.
+    Remove old protocol output files.
     """
 
     os.makedirs(
@@ -319,6 +596,7 @@ def clear_old_output_files():
     )
 
     output_files = [
+
         "vless_configs.txt",
         "vless_base64.txt",
 
@@ -330,6 +608,7 @@ def clear_old_output_files():
 
         "shadowsocks_configs.txt",
         "shadowsocks_base64.txt",
+
     ]
 
     for filename in output_files:
@@ -339,10 +618,15 @@ def clear_old_output_files():
             filename
         )
 
-        if os.path.exists(path):
+        if os.path.exists(
+            path
+        ):
 
             try:
-                os.remove(path)
+
+                os.remove(
+                    path
+                )
 
             except Exception as e:
 
@@ -351,9 +635,17 @@ def clear_old_output_files():
                 )
 
 
-def write_protocol_outputs(categorized_configs):
+# ============================================================
+# WRITE PROTOCOL OUTPUTS
+# ============================================================
+
+def write_protocol_outputs(
+    categorized_configs
+):
     """
-    ساخت خروجی جداگانه برای هر Protocol
+    Create protocol-specific files.
+
+    Every file gets Hiddify metadata.
     """
 
     all_configs = []
@@ -362,36 +654,54 @@ def write_protocol_outputs(categorized_configs):
 
     total_active = 0
 
-    for protocol, configs in categorized_configs.items():
+    for protocol, configs in (
+        categorized_configs.items()
+    ):
 
-        # اگر برای این پروتکل چیزی وجود ندارد
+        stats.append(
+            f"{protocol.upper()}: {len(configs)}"
+        )
+
         if not configs:
-
-            stats.append(
-                f"{protocol.upper()}: 0"
-            )
-
             continue
 
-        # فایل معمولی
-        config_file = os.path.join(
+        # ----------------------------------------------------
+        # RAW CONFIG FILE
+        # ----------------------------------------------------
+
+        raw_lines = add_hiddify_metadata(
+            configs
+        )
+
+        raw_content = "\n".join(
+            raw_lines
+        )
+
+        raw_file = os.path.join(
             OUTPUT_DIR,
             f"{protocol}_configs.txt"
         )
 
-        config_content = "\n".join(
-            configs
-        )
-
         write_file(
-            config_file,
-            config_content
+            raw_file,
+            raw_content
         )
 
-        # Base64
+        # ----------------------------------------------------
+        # BASE64 CONFIG FILE
+        # ----------------------------------------------------
+
+        # IMPORTANT:
+        # Metadata must be added BEFORE Base64 encoding.
+        # Hiddify decodes the file and then reads the headers.
+
         base64_content = base64.b64encode(
-            config_content.encode("utf-8")
-        ).decode("utf-8")
+            raw_content.encode(
+                "utf-8"
+            )
+        ).decode(
+            "utf-8"
+        )
 
         base64_file = os.path.join(
             OUTPUT_DIR,
@@ -403,24 +713,38 @@ def write_protocol_outputs(categorized_configs):
             base64_content
         )
 
-        all_configs.extend(configs)
-
-        count = len(configs)
-
-        total_active += count
-
-        stats.append(
-            f"{protocol.upper()}: {count}"
+        all_configs.extend(
+            configs
         )
 
-    return all_configs, total_active, stats
+        total_active += len(
+            configs
+        )
 
+    return (
+        all_configs,
+        total_active,
+        stats
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
 
-    print("=" * 50)
-    print("POPVPN AUTO UPDATE")
-    print("=" * 50)
+    print("=" * 60)
+
+    print(
+        "POPVPN AUTO UPDATE"
+    )
+
+    print(
+        "HIDDIFY COMPATIBLE SUBSCRIPTION"
+    )
+
+    print("=" * 60)
 
     links = load_links()
 
@@ -438,7 +762,10 @@ def main():
 
     failed_links = 0
 
-    # دریافت تمام Subscription ها
+    # --------------------------------------------------------
+    # FETCH ALL SUBSCRIPTIONS
+    # --------------------------------------------------------
+
     for link in links:
 
         configs = fetch_configs_from_url(
@@ -458,6 +785,7 @@ def main():
             failed_links += 1
 
     print()
+
     print(
         f"لینک موفق: {successful_links}"
     )
@@ -467,51 +795,67 @@ def main():
     )
 
     print(
-        f"کل کانفیگ دریافتی: {len(all_raw_configs)}"
+        f"کل کانفیگ دریافتی: "
+        f"{len(all_raw_configs)}"
     )
 
-    # اگر هیچ Subscription دریافت نشد،
-    # خروجی قبلی را خراب نکنیم.
-    #
-    # این قسمت مهم است:
-    # خطای موقت اینترنت نباید باعث حذف همه کانفیگ‌های سالم شود.
+    # --------------------------------------------------------
+    # DO NOT DESTROY OLD WORKING OUTPUT
+    # --------------------------------------------------------
+
     if not all_raw_configs:
 
         print()
+
         print(
             "هیچ کانفیگی دریافت نشد."
         )
 
         print(
-            "برای جلوگیری از از بین رفتن اطلاعات قبلی، "
-            "فایل‌های خروجی تغییر داده نمی‌شوند."
+            "خروجی قبلی حفظ می‌شود."
         )
 
         write_file(
             STATS_FILE,
-            "UPDATE FAILED | "
-            f"Links: {len(links)} | "
-            f"Successful: {successful_links} | "
-            f"Failed: {failed_links} | "
-            "No configs received"
+            (
+                "UPDATE FAILED | "
+                f"Links: {len(links)} | "
+                f"Successful: {successful_links} | "
+                f"Failed: {failed_links} | "
+                "No configs received"
+            )
         )
 
         return 1
 
-    # حذف Duplicate
+    # --------------------------------------------------------
+    # REMOVE DUPLICATES
+    # --------------------------------------------------------
+
     unique_configs = remove_duplicates(
         all_raw_configs
     )
 
-    # دسته‌بندی
-    categorized_configs = process_and_categorize(
-        unique_configs
+    # --------------------------------------------------------
+    # CATEGORIZE
+    # --------------------------------------------------------
+
+    categorized_configs = (
+        process_and_categorize(
+            unique_configs
+        )
     )
 
-    # حذف خروجی‌های قدیمی
+    # --------------------------------------------------------
+    # CLEAR OLD OUTPUT
+    # --------------------------------------------------------
+
     clear_old_output_files()
 
-    # ساخت خروجی‌ها
+    # --------------------------------------------------------
+    # CREATE PROTOCOL OUTPUTS
+    # --------------------------------------------------------
+
     (
         all_configs_combined,
         total_active,
@@ -520,33 +864,53 @@ def main():
         categorized_configs
     )
 
-    # فایل اصلی
-    working_content = "\n".join(
+    # --------------------------------------------------------
+    # MAIN RAW SUBSCRIPTION
+    # --------------------------------------------------------
+
+    main_lines = add_hiddify_metadata(
         all_configs_combined
+    )
+
+    main_content = "\n".join(
+        main_lines
     )
 
     write_file(
         MAIN_CONFIG_FILE,
-        working_content
+        main_content
     )
 
-    # فایل Base64 اصلی
+    # --------------------------------------------------------
+    # MAIN BASE64 SUBSCRIPTION
+    # --------------------------------------------------------
+
     main_base64 = base64.b64encode(
-        working_content.encode("utf-8")
-    ).decode("utf-8")
+        main_content.encode(
+            "utf-8"
+        )
+    ).decode(
+        "utf-8"
+    )
 
     write_file(
         MAIN_BASE64_FILE,
         main_base64
     )
 
-    # آمار
+    # --------------------------------------------------------
+    # STATS
+    # --------------------------------------------------------
+
     stats_text = (
         f"Total Active: {total_active} | "
         + " | ".join(stats)
         + f" | Links: {len(links)}"
         + f" | Successful: {successful_links}"
         + f" | Failed: {failed_links}"
+        + " | Brand: POPVPN"
+        + " | Traffic: Unlimited"
+        + " | Expiry: Unlimited"
     )
 
     write_file(
@@ -554,30 +918,66 @@ def main():
         stats_text
     )
 
+    # --------------------------------------------------------
+    # FINAL LOG
+    # --------------------------------------------------------
+
     print()
-    print("=" * 50)
-    print("UPDATE COMPLETED")
-    print("=" * 50)
+
+    print("=" * 60)
 
     print(
-        f"Total Active: {total_active}"
+        "UPDATE COMPLETED"
+    )
+
+    print("=" * 60)
+
+    print(
+        f"Brand: {PROFILE_TITLE}"
+    )
+
+    print(
+        "Traffic: Unlimited"
+    )
+
+    print(
+        "Expiry: Unlimited"
+    )
+
+    print(
+        f"Update Interval: "
+        f"{PROFILE_UPDATE_INTERVAL} hour"
+    )
+
+    print(
+        f"Total Active: "
+        f"{total_active}"
     )
 
     for item in stats:
-        print(item)
+
+        print(
+            item
+        )
 
     print(
-        f"Successful Links: {successful_links}"
+        f"Successful Links: "
+        f"{successful_links}"
     )
 
     print(
-        f"Failed Links: {failed_links}"
+        f"Failed Links: "
+        f"{failed_links}"
     )
 
-    print("=" * 50)
+    print("=" * 60)
 
     return 0
 
+
+# ============================================================
+# RUN
+# ============================================================
 
 if __name__ == "__main__":
 
