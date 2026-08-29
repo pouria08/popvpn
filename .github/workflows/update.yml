@@ -1,0 +1,43 @@
+name: Auto Update Subscriptions
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run script
+        run: |
+          python main.py
+
+      - name: Read stats
+        id: stats
+        run: |
+          if [ -f stats.txt ]; then
+            STATS=$(cat stats.txt)
+            echo "stats_content=$STATS" >> $GITHUB_ENV
+          else
+            echo "stats_content=Hourly update" >> $GITHUB_ENV
+          fi
+
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add working_configs.txt base64.txt outputs/ stats.txt
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-Update: ${{ env.stats_content }}" && git push)
