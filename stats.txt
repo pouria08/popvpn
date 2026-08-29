@@ -1,1 +1,1 @@
-Total Active: 399 | VLESS: 370 | VMESS: 0 | TROJAN: 29 | SHADOWSOCKS: 0 | Links: 5 | Successful: 4 | Failed: 1 | Brand: POPVPN | Traffic: Unlimited | Expiry: Unlimited
+Total Active: 397 | VLESS: 368 | VMESS: 0 | TROJAN: 29 | SHADOWSOCKS: 0 | Links: 5 | Successful: 4 | Failed: 1 | Brand: POPVPN | Traffic: Unlimited | Expiry: Unlimited | Hiddify: Compatible
