@@ -10,3 +10,4 @@ trojan://kakashka13222@5.249.164.28:25615?allowInsecure=1&alpn=http%2F1.1&host=o
 trojan://tripitropa994825@45.85.88.194:2234?allowInsecure=1&alpn=http/1.1&fp=android&insecure=1&security=tls&sni=vk.com&type=tcp#POPVPN%20%7C%20TROJAN%20%7C%206
 trojan://tripitropa994825@45.85.88.194:2234?allowInsecure=1&alpn=http/1.1&fp=android&insecure=1&security=tls&sni=speedtest.tinkoff.ru&type=tcp#POPVPN%20%7C%20TROJAN%20%7C%207
 trojan://8qCNZU2XdtefT7uB4uPxgRR839btqMG8@ee01.botovod.space:510?type=xhttp&path=%2F&mode=auto&security=reality&sni=www.icloud.com&fp=chrome&pbk=KA8M8E0vMaIPkIEghc6Vcr0_mD84cGp4rcYWGhk2PhI&sid=4c7c#POPVPN%20%7C%20TROJAN%20%7C%208
+trojan://s0_sdK93x9wer_D02Lz9cvK3_Sa014Oakl_C2z@46.229.243.154:4443?security=tls&sni=grape-turbo-fr.roxa.org&type=tcp&fp=random#POPVPN%20%7C%20TROJAN%20%7C%209
