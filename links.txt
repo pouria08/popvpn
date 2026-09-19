@@ -16,11 +16,3 @@ https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Proto
 # --- AetrisVPN (gitverse) ---
 https://gitverse.ru/api/repos/flaafix/AetrisVPN/raw/branch/master/AetrisVPN.txt
 https://gitverse.ru/api/repos/flaafix/AetrisVPN_Black_list/raw/branch/master/configs.txt
-
-# --- منابع غیرفعال / خراب (۲۰۲۶-۰۹-۲۰) ---
-# 404 — مخزن حذف شده است:
-# https://raw.githubusercontent.com/pouria08/popvip/refs/heads/master/Eternity.txt
-# خالی — فقط هدر پروفایل بدون کانفیگ:
-# https://raw.githubusercontent.com/RKPchannel/RKP_bypass_configs/refs/heads/main/whitelist.txt
-# Cloudflare Error 1027 — سقف پلن Worker پر شده:
-# https://9dz4quexuuos.javad-ghoreyshi11.workers.dev/feed/pouria2
