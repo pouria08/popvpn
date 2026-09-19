@@ -95,13 +95,29 @@ https://raw.githubusercontent.com/pouria08/popvpn/main/working_configs.txt
 
 > 📌 **نکته مهم:** این‌ها منابع ورودی POPVPN هستند؛ خروجی نهایی پس از پردازش، Deduplicate، پاک‌سازی و دسته‌بندی توسط خود POPVPN تولید می‌شود.
 
-| # | منبع | وضعیت |
-|---:|---|:---:|
-| 01 | [`RKPchannel/RKP_bypass_configs`](https://raw.githubusercontent.com/RKPchannel/RKP_bypass_configs/refs/heads/main/whitelist.txt) | 🟢 فعال |
-| 02 | [`patterniha/Free-Configs`](https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt) | 🟢 فعال |
-| 03 | [`pouria08/popvip`](https://raw.githubusercontent.com/pouria08/popvip/refs/heads/master/Eternity.txt) | 🟢 فعال |
-| 04 | [`Javad Ghoreyshi Worker Feed`](https://9dz4quexuuos.javad-ghoreyshi11.workers.dev/feed/pouria2) | 🟢 فعال |
-| 05 | [`vlessforu`](https://sub.vlessfo.ru/vlessforu/working_configs.txt) | 🟢 فعال |
+| # | منبع | پوشش | وضعیت |
+|---:|---|:---:|:---:|
+| 01 | [`patterniha/Free-Configs`](https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt) | Mixed | 🟢 فعال |
+| 02 | [`MatinGhanbari/v2ray-configs`](https://raw.githubusercontent.com/MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/all_sub.txt) | Mixed | 🟢 فعال |
+| 03 | [`barry-far/V2ray-Config`](https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt) | Mixed | 🟢 فعال |
+| 04 | [`Epodonios/v2ray-configs`](https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt) | Mixed | 🟢 فعال |
+| 05 | [`barry-far — VMess`](https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/vmess.txt) | VMess | 🟢 فعال |
+| 06 | [`barry-far — Shadowsocks`](https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/ss.txt) | SS | 🟢 فعال |
+| 07 | [`barry-far — Trojan`](https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/trojan.txt) | Trojan | 🟢 فعال |
+| 08 | [`Epodonios — Trojan`](https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/trojan.txt) | Trojan | 🟢 فعال |
+| 09 | [`flaafix/AetrisVPN`](https://gitverse.ru/api/repos/flaafix/AetrisVPN/raw/branch/master/AetrisVPN.txt) | VLESS | 🟢 فعال |
+| 10 | [`flaafix/AetrisVPN_Black_list`](https://gitverse.ru/api/repos/flaafix/AetrisVPN_Black_list/raw/branch/master/configs.txt) | Mixed | 🟢 فعال |
+
+### 🔴 منابع غیرفعال‌شده
+
+این منابع در تاریخ ۲۰۲۶-۰۹-۲۰ بررسی و از چرخه خارج شدند (به‌صورت Comment در `links.txt` باقی مانده‌اند):
+
+| منبع | دلیل |
+|---|---|
+| `pouria08/popvip` | مخزن حذف شده — پاسخ `404` |
+| `RKPchannel/RKP_bypass_configs` | فایل خالی — فقط هدر پروفایل بدون هیچ کانفیگ |
+| `Javad Ghoreyshi Worker Feed` | `Cloudflare Error 1027` — سقف پلن Worker پر شده |
+| `vlessforu` | در `links.txt` وجود نداشت |
 
 ### 🧩 فایل مرکزی منابع
 

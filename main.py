@@ -1,6 +1,8 @@
 import base64
 import html
+import json
 import os
+import re
 import urllib.parse
 
 import requests
@@ -48,6 +50,18 @@ SUPPORTED_PROTOCOLS = (
     "shadowsocks://",
 )
 
+# URI schemes that belong to each protocol category.
+# Shadowsocks is published under two different schemes.
+PROTOCOL_SCHEMES = {
+    "vless": ("vless",),
+    "vmess": ("vmess",),
+    "trojan": ("trojan",),
+    "shadowsocks": (
+        "ss",
+        "shadowsocks",
+    ),
+}
+
 
 # ============================================================
 # HTTP SESSION
@@ -92,8 +106,17 @@ def create_session():
         adapter
     )
 
+    # Some providers block unknown agents or serve
+    # different content to non-browser clients.
     session.headers.update({
-        "User-Agent": "POPVPN-AutoUpdater/2.0"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/127.0.0.0 Safari/537.36"
+        ),
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate",
+        "Cache-Control": "no-cache",
     })
 
     return session
@@ -207,6 +230,93 @@ def add_hiddify_metadata(configs):
 
 
 # ============================================================
+# BASE64 HELPER
+# ============================================================
+
+def try_decode_base64(content):
+    """
+    Try to decode a subscription body that may be Base64.
+
+    Tolerates the real-world variations that a strict
+    validate=True decode rejects:
+
+    - line breaks / spaces inside the payload
+    - missing '=' padding
+    - URL-safe alphabet ('-' and '_')
+
+    Returns the decoded text, or None when the content is
+    not Base64 (i.e. it is already plain text).
+    """
+
+    if not content:
+        return None
+
+    # A plain-text subscription starts with a protocol or a
+    # '#' metadata header, so never treat it as Base64.
+    stripped = content.lstrip()
+
+    if stripped.startswith("#"):
+        return None
+
+    if stripped.lower().startswith(
+        SUPPORTED_PROTOCOLS
+    ):
+        return None
+
+    # Remove all whitespace before decoding.
+    compact = re.sub(
+        r"\s+",
+        "",
+        content
+    )
+
+    if len(compact) < 16:
+        return None
+
+    if not re.fullmatch(
+        r"[A-Za-z0-9+/\-_=]+",
+        compact
+    ):
+        return None
+
+    # Restore padding to a multiple of 4.
+    padding = (-len(compact)) % 4
+
+    candidate = compact + ("=" * padding)
+
+    for decoder in (
+        base64.b64decode,
+        base64.urlsafe_b64decode,
+    ):
+
+        try:
+
+            decoded = decoder(
+                candidate
+            ).decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+        except Exception:
+
+            continue
+
+        # Only accept the result if it actually looks
+        # like a config list.
+        if decoded and (
+            decoded.lstrip().lower().startswith(
+                SUPPORTED_PROTOCOLS
+            )
+            or "://" in decoded
+        ):
+
+            return decoded
+
+    return None
+
+
+# ============================================================
 # FETCH SUBSCRIPTION
 # ============================================================
 
@@ -254,6 +364,28 @@ def fetch_configs_from_url(url):
             return []
 
         # ----------------------------------------------------
+        # Detect error pages served with HTTP 200.
+        # ----------------------------------------------------
+
+        head = content[:600].lower()
+
+        if head.startswith("<!doctype html") or head.startswith("<html"):
+
+            print(
+                "پاسخ یک صفحه HTML بود، نه Subscription."
+            )
+
+            return []
+
+        if "error 1027" in head or "rate limited" in head:
+
+            print(
+                "منبع توسط Cloudflare محدود شده است."
+            )
+
+            return []
+
+        # ----------------------------------------------------
         # First decode HTML entities.
         # ----------------------------------------------------
 
@@ -265,23 +397,9 @@ def fetch_configs_from_url(url):
         # Try Base64 decoding.
         # ----------------------------------------------------
 
-        decoded_content = None
-
-        try:
-
-            decoded_content = (
-                base64.b64decode(
-                    content,
-                    validate=True
-                )
-                .decode(
-                    "utf-8"
-                )
-            )
-
-        except Exception:
-
-            decoded_content = None
+        decoded_content = try_decode_base64(
+            content
+        )
 
         if decoded_content:
 
@@ -537,12 +655,24 @@ def validate_uri(
             config
         )
 
-        if parsed.scheme.lower() != protocol:
+        scheme = parsed.scheme.lower()
+
+        # ----------------------------------------------------
+        # Accept every scheme that maps to this protocol.
+        # 'ss' and 'shadowsocks' are the same protocol, so a
+        # plain string comparison would reject all ss:// URIs.
+        # ----------------------------------------------------
+
+        allowed_schemes = PROTOCOL_SCHEMES.get(
+            protocol,
+            (protocol,)
+        )
+
+        if scheme not in allowed_schemes:
             return False
 
         if protocol in (
             "vless",
-            "vmess",
             "trojan",
         ):
 
@@ -552,10 +682,20 @@ def validate_uri(
             if not parsed.port:
                 return False
 
-        elif protocol == "shadowsocks":
+            return True
 
-            if not parsed.netloc:
-                return False
+        if protocol == "vmess":
+
+            return validate_vmess(
+                config
+            )
+
+        if protocol == "shadowsocks":
+
+            return validate_shadowsocks(
+                config,
+                parsed
+            )
 
         return True
 
@@ -564,9 +704,245 @@ def validate_uri(
         return False
 
 
+def validate_vmess(config):
+    """
+    Validate a vmess:// config.
+
+    VMess normally carries a Base64 encoded JSON body rather
+    than a regular URI, so urlparse cannot find a host/port.
+    Both the JSON form and the newer URI form are accepted.
+    """
+
+    body = config[len("vmess://"):].strip()
+
+    if not body:
+        return False
+
+    # ----------------------------------------------------
+    # Form 1: vmess://uuid@host:port?params
+    # ----------------------------------------------------
+
+    if "@" in body.split("?", 1)[0]:
+
+        parsed = urllib.parse.urlparse(
+            config
+        )
+
+        return bool(
+            parsed.hostname
+            and parsed.port
+        )
+
+    # ----------------------------------------------------
+    # Form 2: vmess://<base64 json>
+    # ----------------------------------------------------
+
+    payload = body.split("#", 1)[0]
+
+    compact = re.sub(
+        r"\s+",
+        "",
+        payload
+    )
+
+    compact += "=" * ((-len(compact)) % 4)
+
+    for decoder in (
+        base64.b64decode,
+        base64.urlsafe_b64decode,
+    ):
+
+        try:
+
+            decoded = decoder(
+                compact
+            ).decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+            data = json.loads(
+                decoded
+            )
+
+        except Exception:
+
+            continue
+
+        if not isinstance(data, dict):
+            continue
+
+        address = str(
+            data.get("add", "")
+        ).strip()
+
+        port = str(
+            data.get("port", "")
+        ).strip()
+
+        uid = str(
+            data.get("id", "")
+        ).strip()
+
+        if address and port and uid:
+            return True
+
+    return False
+
+
+def validate_shadowsocks(
+    config,
+    parsed
+):
+    """
+    Validate an ss:// or shadowsocks:// config.
+
+    Supported shapes:
+      ss://<base64 method:pass>@host:port
+      ss://<method:pass>@host:port
+      ss://<base64 of the whole method:pass@host:port>
+    """
+
+    if parsed.hostname and parsed.port:
+        return True
+
+    # Fully Base64 encoded body.
+
+    body = config.split("://", 1)[1]
+
+    payload = body.split("#", 1)[0].split("?", 1)[0]
+
+    compact = re.sub(
+        r"\s+",
+        "",
+        payload
+    )
+
+    compact += "=" * ((-len(compact)) % 4)
+
+    for decoder in (
+        base64.b64decode,
+        base64.urlsafe_b64decode,
+    ):
+
+        try:
+
+            decoded = decoder(
+                compact
+            ).decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+        except Exception:
+
+            continue
+
+        if "@" not in decoded:
+            continue
+
+        host_part = decoded.rsplit("@", 1)[1]
+
+        if ":" not in host_part:
+            continue
+
+        port = host_part.rsplit(":", 1)[1]
+
+        if port.isdigit():
+            return True
+
+    return False
+
+
 # ============================================================
 # CATEGORIZE
 # ============================================================
+
+def rename_config(
+    config,
+    protocol,
+    new_name
+):
+    """
+    Apply the POPVPN display name to a config.
+
+    For URI style configs the name lives in the fragment.
+    For Base64 VMess configs it lives in the JSON 'ps' field,
+    so the payload is re-encoded instead of getting a
+    fragment appended, which some clients refuse to parse.
+    """
+
+    body = config.split("://", 1)[1]
+
+    is_b64_vmess = (
+        protocol == "vmess"
+        and "@" not in body.split("?", 1)[0]
+    )
+
+    if is_b64_vmess:
+
+        payload = body.split("#", 1)[0]
+
+        compact = re.sub(
+            r"\s+",
+            "",
+            payload
+        )
+
+        compact += "=" * ((-len(compact)) % 4)
+
+        for decoder in (
+            base64.b64decode,
+            base64.urlsafe_b64decode,
+        ):
+
+            try:
+
+                data = json.loads(
+                    decoder(
+                        compact
+                    ).decode(
+                        "utf-8",
+                        errors="ignore"
+                    )
+                )
+
+            except Exception:
+
+                continue
+
+            if not isinstance(data, dict):
+                continue
+
+            data["ps"] = new_name
+
+            reencoded = base64.b64encode(
+                json.dumps(
+                    data,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).decode("utf-8")
+
+            return f"vmess://{reencoded}"
+
+        return None
+
+    base_config = config.split(
+        "#",
+        1
+    )[0]
+
+    encoded_name = urllib.parse.quote(
+        new_name,
+        safe=""
+    )
+
+    return (
+        f"{base_config}"
+        f"#{encoded_name}"
+    )
+
 
 def process_and_categorize(
     configs
@@ -651,15 +1027,6 @@ def process_and_categorize(
             continue
 
         # ----------------------------------------------------
-        # Remove old name
-        # ----------------------------------------------------
-
-        base_config = cleaned.split(
-            "#",
-            1
-        )[0]
-
-        # ----------------------------------------------------
         # Create POPVPN name
         # ----------------------------------------------------
 
@@ -669,15 +1036,17 @@ def process_and_categorize(
             f"{counters[protocol]}"
         )
 
-        encoded_name = urllib.parse.quote(
-            new_name,
-            safe=""
+        final_config = rename_config(
+            cleaned,
+            protocol,
+            new_name
         )
 
-        final_config = (
-            f"{base_config}"
-            f"#{encoded_name}"
-        )
+        if not final_config:
+
+            rejected += 1
+
+            continue
 
         categories[
             protocol
