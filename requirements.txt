@@ -1,5 +1,2 @@
 requests
-
-# فقط برای اعتبارسنجی outputs/clash.yaml در Workflow استفاده می‌شود.
-# خود main.py هیچ وابستگی به YAML ندارد.
 PyYAML
