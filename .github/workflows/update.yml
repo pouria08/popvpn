@@ -22,7 +22,9 @@ jobs:
   update:
     runs-on: ubuntu-latest
 
-    timeout-minutes: 10
+    # تست واقعی اتصال چند دقیقه زمان می‌برد، پس مهلت بیشتری
+    # نسبت به حالت قبل لازم است.
+    timeout-minutes: 20
 
     steps:
 
@@ -46,7 +48,17 @@ jobs:
           python -m pip install -r requirements.txt
 
       # اجرای اسکریپت آپدیت
+      #
+      # POPVPN_TEST=1        تست واقعی اتصال فعال باشد
+      # POPVPN_STRICT=1      فیلتر کیفیت فعال باشد
+      # POPVPN_TEST_WORKERS  تعداد اتصال هم‌زمان
+      # POPVPN_TEST_TIMEOUT  مهلت هر اتصال (ثانیه)
       - name: Run update script
+        env:
+          POPVPN_TEST: '1'
+          POPVPN_STRICT: '1'
+          POPVPN_TEST_WORKERS: '150'
+          POPVPN_TEST_TIMEOUT: '3'
         run: |
           python main.py
 
@@ -56,6 +68,31 @@ jobs:
           test -f working_configs.txt
           test -f base64.txt
           test -f stats.txt
+          test -f outputs/clash.yaml
+          test -f outputs/singbox.json
+
+          # پروفایل‌های کلاینت باید واقعاً قابل Parse باشند،
+          # وگرنه کاربر یک Subscription خراب دریافت می‌کند.
+          python -c "import json; json.load(open('outputs/singbox.json'))"
+
+          python - <<'PY'
+          import yaml
+
+          with open("outputs/clash.yaml", encoding="utf-8") as handle:
+              data = yaml.safe_load(handle)
+
+          assert data.get("proxies"), "clash.yaml has no proxies"
+
+          names = {proxy["name"] for proxy in data["proxies"]}
+
+          for group in data.get("proxy-groups", []):
+              unknown = set(group["proxies"]) - names - {
+                  g["name"] for g in data["proxy-groups"]
+              }
+              assert not unknown, f"unknown proxies: {unknown}"
+
+          print(f"clash.yaml OK — {len(data['proxies'])} proxies")
+          PY
 
           echo "================================"
           echo "UPDATE RESULT"
