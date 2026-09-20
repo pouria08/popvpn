@@ -1,0 +1,4080 @@
+diff --git a/.github/workflows/update.yml b/.github/workflows/update.yml
+index 31a9796..1ec4ccd 100644
+--- a/.github/workflows/update.yml
++++ b/.github/workflows/update.yml
+@@ -22,7 +22,9 @@ jobs:
+   update:
+     runs-on: ubuntu-latest
+ 
+-    timeout-minutes: 10
++    # تست واقعی اتصال چند دقیقه زمان می‌برد، پس مهلت بیشتری
++    # نسبت به حالت قبل لازم است.
++    timeout-minutes: 20
+ 
+     steps:
+ 
+@@ -46,7 +48,17 @@ jobs:
+           python -m pip install -r requirements.txt
+ 
+       # اجرای اسکریپت آپدیت
++      #
++      # POPVPN_TEST=1        تست واقعی اتصال فعال باشد
++      # POPVPN_STRICT=1      فیلتر کیفیت فعال باشد
++      # POPVPN_TEST_WORKERS  تعداد اتصال هم‌زمان
++      # POPVPN_TEST_TIMEOUT  مهلت هر اتصال (ثانیه)
+       - name: Run update script
++        env:
++          POPVPN_TEST: '1'
++          POPVPN_STRICT: '1'
++          POPVPN_TEST_WORKERS: '150'
++          POPVPN_TEST_TIMEOUT: '3'
+         run: |
+           python main.py
+ 
+@@ -56,6 +68,31 @@ jobs:
+           test -f working_configs.txt
+           test -f base64.txt
+           test -f stats.txt
++          test -f outputs/clash.yaml
++          test -f outputs/singbox.json
++
++          # پروفایل‌های کلاینت باید واقعاً قابل Parse باشند،
++          # وگرنه کاربر یک Subscription خراب دریافت می‌کند.
++          python -c "import json; json.load(open('outputs/singbox.json'))"
++
++          python - <<'PY'
++          import yaml
++
++          with open("outputs/clash.yaml", encoding="utf-8") as handle:
++              data = yaml.safe_load(handle)
++
++          assert data.get("proxies"), "clash.yaml has no proxies"
++
++          names = {proxy["name"] for proxy in data["proxies"]}
++
++          for group in data.get("proxy-groups", []):
++              unknown = set(group["proxies"]) - names - {
++                  g["name"] for g in data["proxy-groups"]
++              }
++              assert not unknown, f"unknown proxies: {unknown}"
++
++          print(f"clash.yaml OK — {len(data['proxies'])} proxies")
++          PY
+ 
+           echo "================================"
+           echo "UPDATE RESULT"
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..333af47
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,8 @@
++__pycache__/
++*.py[cod]
++.venv/
++venv/
++env/
++.vscode/
++.idea/
++.DS_Store
+diff --git a/NEXT_SESSION.md b/NEXT_SESSION.md
+new file mode 100644
+index 0000000..17cd033
+--- /dev/null
++++ b/NEXT_SESSION.md
+@@ -0,0 +1,100 @@
++# 🚀 مرحله بعد — پوش کردن کارهای آماده
++
++> این فایل یادداشت موقت است. بعد از پوش موفق می‌توانید حذفش کنید.
++
++## وضعیت فعلی
++
++روی برنچ `arena/01a0bbcd-popvpn` چهار کامیت وجود دارد:
++
++| کامیت | موضوع | وضعیت |
++|---|---|:--:|
++| `c6492af` | رفع منابع خراب و باگ اعتبارسنجی VMess / Shadowsocks | ✅ پوش و مرج شده |
++| `4254752` | پروفایل Clash Meta و Sing-box + حذف تکراری هوشمند | ⏳ فقط لوکال |
++| `b641abd` | تست واقعی اتصال + فیلتر کیفیت + خروجی Reality | ⏳ فقط لوکال |
++| `e44ea0f` | بازنویسی کامل README و درج همه لینک‌ها | ⏳ فقط لوکال |
++
++سه کامیت آخر کامیت شده‌اند ولی هنوز روی GitHub نیستند، چون session قبلی
++بعد از مرج شدن PR اول بسته شد و دسترسی شبکه‌اش قطع شده بود.
++
++## کاری که باید انجام شود
++
++در یک coding session جدید:
++
++```bash
++git push origin arena/01a0bbcd-popvpn
++```
++
++سپس یک Pull Request از `arena/01a0bbcd-popvpn` به `main` باز و مرج کنید.
++
++## بعد از مرج
++
++Workflow در دقیقه ۱۷ ساعت بعد خودکار اجرا می‌شود. برای اجرای فوری،
++از تب Actions گزینه **Run workflow** را بزنید.
++
++### چه چیزی باید در `stats.txt` ببینید
++
++```text
++Total Active: ... | VLESS: ... | VMESS: ... | TROJAN: ... | SHADOWSOCKS: ...
++| Clash: ... | SingBox: ... | Reality: ... | Tested: yes
++| Links: 10 | Successful: ... | Failed: ...
++```
++
++نکات مهم:
++
++- فیلدهای `Reality:` و `Tested: yes` جدید هستند.
++- `VMESS` و `SHADOWSOCKS` دیگر نباید صفر باشند.
++- **تعداد کل کانفیگ‌ها کمتر از قبل خواهد بود و این درست است** — سرورهای
++  مرده و کانفیگ‌های ناامن حالا حذف می‌شوند.
++
++### فایل‌های جدیدی که ساخته می‌شوند
++
++```text
++outputs/clash.yaml
++outputs/singbox.json
++outputs/reality_configs.txt
++outputs/reality_base64.txt
++```
++
++## اگر Workflow شکست خورد
++
++مرحله `Verify generated files` عمداً سخت‌گیر است و اگر پروفایل Clash یا
++Sing-box قابل Parse نباشد، Commit انجام نمی‌شود. لاگ همان مرحله دلیل را
++نشان می‌دهد.
++
++برای دیباگ محلی:
++
++```bash
++pip install -r requirements.txt
++
++# اجرای سریع بدون تست اتصال
++POPVPN_TEST=0 python main.py
++
++# اجرای کامل مثل CI
++POPVPN_TEST=1 POPVPN_STRICT=1 python main.py
++```
++
++## تنظیمات قابل کنترل
++
++| متغیر | پیش‌فرض | کاربرد |
++|---|:--:|---|
++| `POPVPN_TEST` | `1` | فعال بودن تست اتصال |
++| `POPVPN_TEST_TIMEOUT` | `3` | مهلت هر اتصال (ثانیه) |
++| `POPVPN_TEST_WORKERS` | `100` | تعداد اتصال هم‌زمان |
++| `POPVPN_TEST_MAX` | `0` | سقف تعداد تست، صفر = بی‌نهایت |
++| `POPVPN_TEST_TLS` | `0` | دست‌دادن TLS هم انجام شود |
++| `POPVPN_STRICT` | `1` | فیلتر کیفیت فعال باشد |
++
++> `POPVPN_TEST_TLS` عمداً خاموش است. روشن بودنش تست را سخت‌گیرتر می‌کند
++> ولی سرورهای سالم پشت CDN را هم حذف می‌کند.
++
++## پیشنهادهای بعدی
++
++۱. **تست عبور ترافیک واقعی** — اجرای باینری Xray یا sing-box روی Runner و
++   درخواست واقعی به `generate_204`. دقت را از «سرور زنده است» به «پروکسی
++   واقعاً کار می‌کند» می‌رساند.
++
++۲. **تاریخچه پایداری** — ثبت اینکه هر سرور در چند اجرای اخیر زنده بوده و
++   اولویت دادن به سرورهای مداوم به جای آن‌هایی که یک‌بار شانسی جواب دادند.
++
++۳. **تفکیک کشوری** با GeoIP برای تولید `outputs/by-country/de.txt` و
++   نام‌گذاری به شکل `POPVPN | 🇩🇪 DE | 42ms`.
+diff --git a/README.md b/README.md
+index bc661cf..756985c 100644
+--- a/README.md
++++ b/README.md
+@@ -9,6 +9,8 @@
+ <p>
+ <img src="https://img.shields.io/badge/AUTO--UPDATE-EVERY%20HOUR-7c3aed?style=for-the-badge&logo=githubactions&logoColor=white" alt="Auto Update" />
+ <img src="https://img.shields.io/badge/HIDDIFY-COMPATIBLE-06b6d4?style=for-the-badge" alt="Hiddify" />
++<img src="https://img.shields.io/badge/CLASH%20META-READY-10b981?style=for-the-badge" alt="Clash Meta" />
++<img src="https://img.shields.io/badge/SING--BOX-READY-ef4444?style=for-the-badge" alt="Sing-box" />
+ <img src="https://img.shields.io/badge/VLESS-READY-8b5cf6?style=for-the-badge" alt="VLESS" />
+ <img src="https://img.shields.io/badge/VMESS-READY-3b82f6?style=for-the-badge" alt="VMess" />
+ <img src="https://img.shields.io/badge/TROJAN-READY-f97316?style=for-the-badge" alt="Trojan" />
+@@ -23,7 +25,7 @@
+ 
+ <br />
+ 
+-[📥 Subscription کامل](https://raw.githubusercontent.com/pouria08/popvpn/main/base64.txt) • [📊 آمار](https://raw.githubusercontent.com/pouria08/popvpn/main/stats.txt) • [⚙️ Actions](https://github.com/pouria08/popvpn/actions) • [📂 Outputs](https://github.com/pouria08/popvpn/tree/main/outputs)
++[📥 Subscription کامل](https://raw.githubusercontent.com/pouria08/popvpn/main/base64.txt) • [⚡ Clash / FlClash](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/clash.yaml) • [📦 Sing-box](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/singbox.json) • [📊 آمار](https://raw.githubusercontent.com/pouria08/popvpn/main/stats.txt) • [⚙️ Actions](https://github.com/pouria08/popvpn/actions)
+ 
+ </div>
+ 
+@@ -40,9 +42,17 @@ POPVPN منابع تعریف‌شده در `links.txt` را به‌صورت خو
+ | قابلیت | وضعیت |
+ |---|:---:|
+ | 🔄 آپدیت خودکار ساعتی | ✅ |
+-| 🧹 حذف کانفیگ‌های تکراری | ✅ |
++| 🚦 تست واقعی اتصال به سرورها | ✅ |
++| 🏎 مرتب‌سازی از سریع‌ترین به کندترین | ✅ |
++| ⏱ نمایش تأخیر در نام هر کانفیگ | ✅ |
++| 🛡 فیلتر پروتکل‌های ناامن و قدیمی | ✅ |
++| 🔒 خروجی اختصاصی Reality | ✅ |
++| 🧹 حذف هوشمند تکراری‌ها بر اساس Endpoint | ✅ |
+ | 🧼 اصلاح HTML Entity مثل `&amp;` | ✅ |
+ | 🗂 تفکیک VLESS / VMess / Trojan / SS | ✅ |
++| ⚡ خروجی Clash Meta / FlClash | ✅ |
++| 📦 خروجی Sing-box / Hiddify Next | ✅ |
++| 🚀 انتخاب خودکار سریع‌ترین سرور | ✅ |
+ | 🔐 خروجی Base64 | ✅ |
+ | 📄 خروجی Plain Text | ✅ |
+ | 📊 فایل آمار | ✅ |
+@@ -56,34 +66,140 @@ POPVPN منابع تعریف‌شده در `links.txt` را به‌صورت خو
+ 
+ # 🔥 لینک‌های آماده Subscription
+ 
+-> **برای Hiddify و اکثر کلاینت‌ها، پیشنهاد اصلی POPVPN نسخه `base64.txt` است.**
++> 🚀 **همه‌ی لینک‌ها هر ساعت به‌صورت خودکار آپدیت می‌شوند و فقط شامل سرورهایی هستند که در آخرین اجرا واقعاً پاسخ داده‌اند.**
+ 
+-## 🏆 Subscription کامل — Base64
++## 📇 فهرست کامل لینک‌ها — یک نگاه
++
++جدول زیر **تمام** خروجی‌های POPVPN است. کافی است لینک ستون آخر را در برنامه‌ی خود Paste کنید.
++
++| # | دسته | خروجی | فرمت | لینک مستقیم |
++|:--:|---|---|:--:|---|
++| 1 | 🏆 **کامل** | همه‌ی پروتکل‌ها | Base64 | [`base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/base64.txt) |
++| 2 | 🏆 **کامل** | همه‌ی پروتکل‌ها | Plain | [`working_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/working_configs.txt) |
++| 3 | 🟣 **پروتکل** | VLESS | Plain | [`vless_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vless_configs.txt) |
++| 4 | 🟣 **پروتکل** | VLESS | Base64 | [`vless_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vless_base64.txt) |
++| 5 | 🔵 **پروتکل** | VMess | Plain | [`vmess_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vmess_configs.txt) |
++| 6 | 🔵 **پروتکل** | VMess | Base64 | [`vmess_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vmess_base64.txt) |
++| 7 | 🟠 **پروتکل** | Trojan | Plain | [`trojan_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/trojan_configs.txt) |
++| 8 | 🟠 **پروتکل** | Trojan | Base64 | [`trojan_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/trojan_base64.txt) |
++| 9 | 🟢 **پروتکل** | Shadowsocks | Plain | [`shadowsocks_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/shadowsocks_configs.txt) |
++| 10 | 🟢 **پروتکل** | Shadowsocks | Base64 | [`shadowsocks_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/shadowsocks_base64.txt) |
++| 11 | 🔒 **ویژه** | فقط VLESS + Reality | Plain | [`reality_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/reality_configs.txt) |
++| 12 | 🔒 **ویژه** | فقط VLESS + Reality | Base64 | [`reality_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/reality_base64.txt) |
++| 13 | ⚡ **پروفایل** | Clash Meta / FlClash | YAML | [`clash.yaml`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/clash.yaml) |
++| 14 | 📦 **پروفایل** | Sing-box / Hiddify Next | JSON | [`singbox.json`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/singbox.json) |
++| 15 | 📊 **آمار** | وضعیت آخرین اجرا | Text | [`stats.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/stats.txt) |
++
++> 💡 **نمی‌دانید کدام را انتخاب کنید؟** اگر از Hiddify یا v2rayNG استفاده می‌کنید ردیف **۱**، اگر FlClash دارید ردیف **۱۳**، و اگر Hiddify Next دارید ردیف **۱۴**.
++
++---
++
++## 🏆 Subscription کامل
++
++شامل هر چهار پروتکل، مرتب‌شده از سریع‌ترین سرور به کندترین.
++
++**Base64** — پیشنهاد اصلی برای Hiddify و اکثر کلاینت‌ها:
+ 
+ ```text
+ https://raw.githubusercontent.com/pouria08/popvpn/main/base64.txt
+ ```
+ 
+-👉 [افزودن Subscription کامل به کلاینت](https://raw.githubusercontent.com/pouria08/popvpn/main/base64.txt)
+-
+-## 📄 Subscription کامل — Plain Text
++**Plain Text** — برای مشاهده یا پردازش دستی:
+ 
+ ```text
+ https://raw.githubusercontent.com/pouria08/popvpn/main/working_configs.txt
+ ```
+ 
+-👉 [مشاهده Subscription کامل](https://raw.githubusercontent.com/pouria08/popvpn/main/working_configs.txt)
+-
+ ---
+ 
+ # 🎯 لینک‌های تفکیک‌شده بر اساس پروتکل
+ 
+-| پروتکل | Plain | Base64 |
++اگر کلاینت شما فقط یک پروتکل خاص را پشتیبانی می‌کند، یا می‌خواهید لیست سبک‌تری داشته باشید:
++
++| پروتکل | توضیح کوتاه | Plain | Base64 |
++|---|---|---|---|
++| 🟣 **VLESS** | سبک، سریع، پشتیبانی از Reality و XTLS | [`vless_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vless_configs.txt) | [`vless_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vless_base64.txt) |
++| 🔵 **VMess** | قدیمی‌تر، سازگاری بالا با کلاینت‌های متنوع | [`vmess_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vmess_configs.txt) | [`vmess_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vmess_base64.txt) |
++| 🟠 **Trojan** | شبیه‌سازی ترافیک HTTPS معمولی | [`trojan_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/trojan_configs.txt) | [`trojan_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/trojan_base64.txt) |
++| 🟢 **Shadowsocks** | ساده و کم‌مصرف، مناسب دستگاه‌های ضعیف | [`shadowsocks_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/shadowsocks_configs.txt) | [`shadowsocks_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/shadowsocks_base64.txt) |
++
++### 📋 نحوه استفاده از لینک تفکیک‌شده
++
++مثلاً فقط VLESS در Hiddify:
++
++```text
++https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vless_base64.txt
++```
++
++> ℹ️ اگر یک پروتکل در اجرای فعلی هیچ کانفیگ سالمی نداشته باشد، فایل آن ساخته نمی‌شود و لینکش موقتاً `404` می‌دهد. تعداد دقیق هر پروتکل در [`stats.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/stats.txt) قابل مشاهده است.
++
++---
++
++# 🔒 خروجی ویژه Reality
++
++پروتکل **VLESS + Reality** در حال حاضر مقاوم‌ترین گزینه در برابر فیلترینگ است، چون ترافیک آن از یک اتصال TLS واقعی به یک سایت معتبر قابل تشخیص نیست.
++
++اگر فقط همین نوع کانفیگ را می‌خواهید:
++
++| فرمت | لینک |
++|---|---|
++| Base64 | [`reality_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/reality_base64.txt) |
++| Plain | [`reality_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/reality_configs.txt) |
++
++```text
++https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/reality_base64.txt
++```
++
++> 🔎 تعداد نودهای Reality در هر اجرا، در فیلد `Reality:` فایل `stats.txt` گزارش می‌شود.
++
++---
++
++# 🧩 پروفایل‌های مخصوص هر اپلیکیشن
++
++علاوه بر Subscription استاندارد، POPVPN دو پروفایل **آماده و کامل** تولید می‌کند که خودشان شامل تنظیمات DNS، قوانین Routing و گروه **انتخاب خودکار سریع‌ترین سرور** هستند.
++
++## ⚡ FlClash / Clash Meta / Mihomo
++
++```text
++https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/clash.yaml
++```
++
++👉 [افزودن پروفایل Clash](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/clash.yaml)
++
++سازگار با: **FlClash** • **Clash Meta** • **Mihomo** • **ClashX Meta** • **Clash Verge Rev** • **Stash**
++
++## 📦 Sing-box / Hiddify Next
++
++```text
++https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/singbox.json
++```
++
++👉 [افزودن پروفایل Sing-box](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/singbox.json)
++
++سازگار با: **sing-box** • **Hiddify Next** • **SFA (Android)** • **SFI (iOS)** • **Karing**
++
++### 🎯 کدام لینک برای کدام برنامه؟
++
++| برنامه | لینک پیشنهادی | چرا |
+ |---|---|---|
+-| 🟣 VLESS | [`vless_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vless_configs.txt) | [`vless_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vless_base64.txt) |
+-| 🔵 VMess | [`vmess_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vmess_configs.txt) | [`vmess_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vmess_base64.txt) |
+-| 🟠 Trojan | [`trojan_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/trojan_configs.txt) | [`trojan_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/trojan_base64.txt) |
+-| 🟢 Shadowsocks | [`shadowsocks_configs.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/shadowsocks_configs.txt) | [`shadowsocks_base64.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/shadowsocks_base64.txt) |
++| 🟦 **Hiddify** | `base64.txt` | Metadata برند و حجم/زمان نامحدود را می‌خواند |
++| ⚡ **FlClash / Clash Meta** | `outputs/clash.yaml` | انتخاب خودکار سریع‌ترین سرور + قوانین Routing |
++| 📦 **Hiddify Next / sing-box** | `outputs/singbox.json` | پروفایل کامل با DNS و urltest |
++| 🤖 **v2rayNG / NekoBox** | `base64.txt` | فرمت استاندارد Subscription |
++| 🪟 **v2rayN** | `base64.txt` | فرمت استاندارد Subscription |
++| 🍎 **Streisand / Shadowrocket** | `base64.txt` | فرمت استاندارد Subscription |
++
++> 💡 **نکته مهم:** فایل‌های `clash.yaml` و `singbox.json` پروفایل **کامل** هستند، نه Subscription خام. یعنی مستقیماً به‌عنوان Config/Profile اضافه‌شان کنید، نه در بخش Subscription.
++
++### ✨ مزیت پروفایل‌های اختصاصی
++
++| قابلیت | `base64.txt` | `clash.yaml` | `singbox.json` |
++|---|:---:|:---:|:---:|
++| انتخاب خودکار سریع‌ترین سرور | ❌ | ✅ | ✅ |
++| تست تأخیر هر ۵ دقیقه | ❌ | ✅ | ✅ |
++| DNS رمزگذاری‌شده (DoH) | ❌ | ✅ | ✅ |
++| عبور مستقیم ترافیک داخلی | ❌ | ✅ | ✅ |
++| گروه انتخاب دستی سرور | ❌ | ✅ | ✅ |
+ 
+ ---
+ 
+@@ -95,13 +211,29 @@ https://raw.githubusercontent.com/pouria08/popvpn/main/working_configs.txt
+ 
+ > 📌 **نکته مهم:** این‌ها منابع ورودی POPVPN هستند؛ خروجی نهایی پس از پردازش، Deduplicate، پاک‌سازی و دسته‌بندی توسط خود POPVPN تولید می‌شود.
+ 
+-| # | منبع | وضعیت |
+-|---:|---|:---:|
+-| 01 | [`RKPchannel/RKP_bypass_configs`](https://raw.githubusercontent.com/RKPchannel/RKP_bypass_configs/refs/heads/main/whitelist.txt) | 🟢 فعال |
+-| 02 | [`patterniha/Free-Configs`](https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt) | 🟢 فعال |
+-| 03 | [`pouria08/popvip`](https://raw.githubusercontent.com/pouria08/popvip/refs/heads/master/Eternity.txt) | 🟢 فعال |
+-| 04 | [`Javad Ghoreyshi Worker Feed`](https://9dz4quexuuos.javad-ghoreyshi11.workers.dev/feed/pouria2) | 🟢 فعال |
+-| 05 | [`vlessforu`](https://sub.vlessfo.ru/vlessforu/working_configs.txt) | 🟢 فعال |
++| # | منبع | پوشش | وضعیت |
++|---:|---|:---:|:---:|
++| 01 | [`patterniha/Free-Configs`](https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt) | Mixed | 🟢 فعال |
++| 02 | [`MatinGhanbari/v2ray-configs`](https://raw.githubusercontent.com/MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/all_sub.txt) | Mixed | 🟢 فعال |
++| 03 | [`barry-far/V2ray-Config`](https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt) | Mixed | 🟢 فعال |
++| 04 | [`Epodonios/v2ray-configs`](https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt) | Mixed | 🟢 فعال |
++| 05 | [`barry-far — VMess`](https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/vmess.txt) | VMess | 🟢 فعال |
++| 06 | [`barry-far — Shadowsocks`](https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/ss.txt) | SS | 🟢 فعال |
++| 07 | [`barry-far — Trojan`](https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/trojan.txt) | Trojan | 🟢 فعال |
++| 08 | [`Epodonios — Trojan`](https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/trojan.txt) | Trojan | 🟢 فعال |
++| 09 | [`flaafix/AetrisVPN`](https://gitverse.ru/api/repos/flaafix/AetrisVPN/raw/branch/master/AetrisVPN.txt) | VLESS | 🟢 فعال |
++| 10 | [`flaafix/AetrisVPN_Black_list`](https://gitverse.ru/api/repos/flaafix/AetrisVPN_Black_list/raw/branch/master/configs.txt) | Mixed | 🟢 فعال |
++
++### 🔴 منابع غیرفعال‌شده
++
++این منابع در تاریخ ۲۰۲۶-۰۹-۲۰ بررسی و از چرخه خارج شدند (به‌صورت Comment در `links.txt` باقی مانده‌اند):
++
++| منبع | دلیل |
++|---|---|
++| `pouria08/popvip` | مخزن حذف شده — پاسخ `404` |
++| `RKPchannel/RKP_bypass_configs` | فایل خالی — فقط هدر پروفایل بدون هیچ کانفیگ |
++| `Javad Ghoreyshi Worker Feed` | `Cloudflare Error 1027` — سقف پلن Worker پر شده |
++| `vlessforu` | در `links.txt` وجود نداشت |
+ 
+ ### 🧩 فایل مرکزی منابع
+ 
+@@ -150,7 +282,19 @@ schedule:
+        🧼 Decode + Clean URLs
+                 │
+                 ▼
+-        🧹 Remove Duplicates
++    🧹 Deduplicate by Endpoint
++                │
++                ▼
++      🛡 Quality Filter
++       (حذف رمزنگاری ضعیف،
++        alterId قدیمی، بدون TLS)
++                │
++                ▼
++     🚦 Real Connectivity Test
++       (اتصال TCP + اندازه‌گیری تأخیر)
++                │
++                ▼
++      🏎 Sort: Fastest → Slowest
+                 │
+                 ▼
+         🗂 Detect Protocols
+@@ -159,6 +303,12 @@ schedule:
+           ╲      │      ╱
+                 ▼
+        📄 Generate Outputs
++        ├── working_configs.txt
++        ├── base64.txt
++        ├── outputs/*_configs.txt
++        ├── outputs/reality_*.txt
++        ├── outputs/clash.yaml
++        └── outputs/singbox.json
+                 │
+                 ▼
+           📊 Update Stats
+@@ -192,11 +342,27 @@ schedule:
+ 
+ این مرحله برای جلوگیری از خراب شدن URLهایی که در بعضی Sourceها به شکل HTML ذخیره شده‌اند اهمیت دارد.
+ 
+-### 04 — Deduplicate
++### 04 — Deduplicate هوشمند
++
++کانفیگ‌های تکراری حذف می‌شوند — اما نه با مقایسه‌ی متنی ساده.
++
++POPVPN **Endpoint واقعی** هر کانفیگ را می‌سنجد (پروتکل + هاست + پورت + کلید + نوع انتقال). بنابراین یک سرور که در ده منبع مختلف با نام‌های متفاوت یا ترتیب پارامتر متفاوت منتشر شده، فقط **یک‌بار** در خروجی می‌آید.
++
++### 05 — فیلتر کیفیت
++
++کانفیگ‌های معتبر ولی ضعیف حذف می‌شوند:
++
++```text
++❌ Shadowsocks با rc4-md5 / aes-*-cfb / chacha20
++❌ VMess با alterId بزرگ‌تر از صفر
++❌ VLESS یا Trojan بدون TLS
++```
++
++### 06 — تست واقعی اتصال
+ 
+-کانفیگ‌های تکراری حذف می‌شوند تا خروجی نهایی تمیزتر باشد.
++به هر سرور یک اتصال TCP واقعی برقرار می‌شود و تأخیر آن اندازه‌گیری می‌گردد. سرورهای بی‌پاسخ حذف و بقیه از سریع‌ترین به کندترین مرتب می‌شوند.
+ 
+-### 05 — Protocol Detection
++### 07 — Protocol Detection
+ 
+ پروتکل‌ها با Prefix خود شناسایی می‌شوند:
+ 
+@@ -208,17 +374,19 @@ ss://
+ shadowsocks://
+ ```
+ 
+-### 06 — Naming
++### 08 — Naming
+ 
+-کانفیگ‌ها با نام برنددار و قابل تشخیص منتشر می‌شوند:
++کانفیگ‌ها با نام برنددار و همراه با **تأخیر اندازه‌گیری‌شده** منتشر می‌شوند:
+ 
+ ```text
+-POPVPN | VLESS | 1
+-POPVPN | VLESS | 2
+-POPVPN | VMESS | 1
+-POPVPN | TROJAN | 1
++POPVPN | VLESS | 1 | 42ms
++POPVPN | VLESS | 2 | 87ms
++POPVPN | VMESS | 1 | 112ms
++POPVPN | TROJAN | 1 | 153ms
+ ```
+ 
++چون لیست بر اساس سرعت مرتب است، سرورهای بالای فهرست همیشه سریع‌ترین‌ها هستند.
++
+ ---
+ 
+ # 🟦 Hiddify
+@@ -235,12 +403,26 @@ POPVPN برای Subscription Metadata مورد استفاده Hiddify نیز خ
+ 
+ بنابراین در کلاینت سازگار، پروفایل با نام **POPVPN** و وضعیت حجم/زمان بدون سقف نمایش داده می‌شود.
+ 
+-### 📌 لینک پیشنهادی Hiddify
++### 📌 لینک‌های پیشنهادی Hiddify
++
++**Hiddify کلاسیک** — به‌عنوان Subscription اضافه کنید:
+ 
+ ```text
+ https://raw.githubusercontent.com/pouria08/popvpn/main/base64.txt
+ ```
+ 
++**Hiddify Next** — به‌عنوان Profile اضافه کنید (پروفایل کامل با انتخاب خودکار سریع‌ترین سرور):
++
++```text
++https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/singbox.json
++```
++
++**فقط Reality** — اگر فیلترینگ شدید است:
++
++```text
++https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/reality_base64.txt
++```
++
+ > ⚠️ «نامحدود» در Metadata به معنی نمایش بدون سقف در Subscription است و محدودیت واقعی سرور، منبع یا شبکه را تغییر نمی‌دهد.
+ 
+ ---
+@@ -273,6 +455,35 @@ https://raw.githubusercontent.com/pouria08/popvpn/main/base64.txt
+ 
+ در کلاینت‌های سازگار، لینک Subscription را در قسمت Subscribe / Subscription وارد کنید و Update را اجرا کنید.
+ 
++## ⚡ FlClash — اضافه کردن پروفایل Clash
++
++1. برنامه **FlClash** را باز کنید.
++2. به تب **Profiles** بروید.
++3. دکمه **+** و سپس **Add from URL** را بزنید.
++4. این لینک را Paste کنید:
++
++```text
++https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/clash.yaml
++```
++
++5. پس از دانلود، در تب **Proxies** گروه **POPVPN — Auto** را انتخاب کنید تا سریع‌ترین سرور خودکار انتخاب شود.
++
++> اگر می‌خواهید خودتان سرور را دستی انتخاب کنید، گروه **POPVPN — Select** را باز کنید.
++
++## 📦 Hiddify Next — اضافه کردن پروفایل Sing-box
++
++1. برنامه **Hiddify Next** را باز کنید.
++2. **New Profile** → **Add from URL** را بزنید.
++3. این لینک را Paste کنید:
++
++```text
++https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/singbox.json
++```
++
++4. پروفایل به‌صورت خودکار سریع‌ترین سرور را انتخاب می‌کند.
++
++> 💡 اگر فقط لیست ساده کانفیگ‌ها را می‌خواهید (نه پروفایل کامل)، همان `base64.txt` را استفاده کنید.
++
+ ---
+ 
+ # 📊 آمار آخرین اجرا
+@@ -293,12 +504,21 @@ VLESS: ...
+ VMESS: ...
+ TROJAN: ...
+ SHADOWSOCKS: ...
++Clash: ...          # تعداد نودهای قابل استفاده در clash.yaml
++SingBox: ...        # تعداد نودهای قابل استفاده در singbox.json
++Reality: ...        # تعداد نودهای VLESS + Reality
++Tested: yes         # آیا تست واقعی اتصال انجام شده
++Links: ...
++Successful: ...
++Failed: ...
+ Brand: POPVPN
+ Traffic: Unlimited
+ Expiry: Unlimited
+ Hiddify: Compatible
+ ```
+ 
++> ℹ️ اعداد `Clash` و `SingBox` معمولاً کمی کمتر از `Total Active` هستند. دلیلش این است که بعضی کانفیگ‌ها (مثلاً Shadowsocks با رمزنگاری غیراستاندارد یا انتقال `xhttp`) در آن کلاینت قابل بیان نیستند و فقط از همان پروفایل حذف می‌شوند — در Subscription اصلی باقی می‌مانند.
++
+ ---
+ 
+ # 🗂 ساختار پروژه
+@@ -318,10 +538,16 @@ popvpn/
+ │   ├── trojan_configs.txt
+ │   ├── trojan_base64.txt
+ │   ├── shadowsocks_configs.txt
+-│   └── shadowsocks_base64.txt
++│   ├── shadowsocks_base64.txt
++│   ├── clash.yaml           # پروفایل Clash Meta / FlClash
++│   ├── singbox.json         # پروفایل Sing-box / Hiddify Next
++│   ├── reality_configs.txt  # فقط VLESS + Reality
++│   └── reality_base64.txt   # فقط VLESS + Reality (Base64)
+ │
+ ├── links.txt                # منابع ورودی
+ ├── main.py                  # موتور پردازش
++├── converters.py            # تبدیل به فرمت کلاینت‌ها
++├── tester.py                # تست واقعی اتصال
+ ├── requirements.txt         # وابستگی‌های Python
+ ├── working_configs.txt      # خروجی کامل Plain
+ ├── base64.txt               # خروجی کامل Base64
+@@ -342,6 +568,18 @@ python main.py
+ 
+ پس از اجرا، خروجی‌ها در Root و پوشه `outputs/` ساخته می‌شوند.
+ 
++اجرای سریع بدون تست اتصال (برای وقتی فقط می‌خواهید فایل‌ها بازتولید شوند):
++
++```bash
++POPVPN_TEST=0 python main.py
++```
++
++تست سخت‌گیرانه‌تر همراه با دست‌دادن TLS:
++
++```bash
++POPVPN_TEST_TLS=1 python main.py
++```
++
+ ---
+ 
+ # 🤖 GitHub Actions
+@@ -369,6 +607,145 @@ Workflow به‌صورت خودکار:
+ 
+ اگر **هیچ کانفیگی از تمام منابع دریافت نشود**، خروجی سالم قبلی حذف نمی‌شود تا یک قطعی موقت Source باعث خراب شدن Subscription کاربران نشود.
+ 
++همین منطق در سه جای دیگر هم تکرار شده است:
++
++| سناریو | رفتار محافظ |
++|---|---|
++| نسبت سرورهای زنده زیر ۵٪ | نتیجه‌ی تست نادیده گرفته می‌شود |
++| فیلتر کیفیت همه را حذف کند | فیلتر نادیده گرفته می‌شود |
++| پروفایل Clash یا Sing-box خراب باشد | Workflow متوقف می‌شود و Commit انجام نمی‌گیرد |
++
++---
++
++# 🩺 عیب‌یابی
++
++### لینک پروتکل `404` می‌دهد
++
++یعنی در آخرین اجرا هیچ کانفیگ سالمی از آن پروتکل پیدا نشده و فایلش ساخته نشده است. تعداد هر پروتکل را در [`stats.txt`](https://raw.githubusercontent.com/pouria08/popvpn/main/stats.txt) ببینید. از لینک کامل `base64.txt` استفاده کنید.
++
++### کانفیگ‌ها وصل نمی‌شوند
++
++تست POPVPN در سطح TCP است و فقط ثابت می‌کند سرور در دسترس است، نه اینکه پروکسی با کلید شما کار می‌کند (بخش [محدودیت مهم این تست](#-محدودیت-مهم-این-تست) را ببینید).
++
++چند نکته:
++
++- سرورهای **بالای لیست** سریع‌ترین‌ها هستند، از آن‌ها شروع کنید.
++- اگر فیلترینگ شدید است، لینک **Reality** را امتحان کنید.
++- در FlClash یا Hiddify Next از گروه **Auto** استفاده کنید تا خودکار بهترین سرور انتخاب شود.
++
++### پروفایل Clash اضافه نمی‌شود
++
++مطمئن شوید آن را به‌عنوان **Profile** اضافه می‌کنید، نه **Subscription**. فایل `clash.yaml` یک کانفیگ کامل است، نه لیست خام کانفیگ.
++
++### تعداد کانفیگ‌ها کم شده است
++
++طبیعی است. با فعال شدن تست واقعی اتصال و فیلتر کیفیت، سرورهای مرده و ناامن حذف می‌شوند. **تعداد کمتر ولی سالم‌تر** بهتر از لیست بلند پر از کانفیگ بی‌فایده است.
++
++---
++
++# 🚦 تست واقعی اتصال
++
++POPVPN پیش از انتشار، به **هر سرور یک اتصال TCP واقعی** برقرار می‌کند و تأخیر آن را اندازه می‌گیرد. سرورهایی که پاسخ ندهند حذف می‌شوند و بقیه از **سریع‌ترین به کندترین** مرتب می‌شوند.
++
++نام هر کانفیگ شامل تأخیر اندازه‌گیری‌شده است:
++
++```text
++POPVPN | VLESS | 1 | 42ms
++POPVPN | VLESS | 2 | 87ms
++POPVPN | TROJAN | 1 | 153ms
++```
++
++### ⚙️ تنظیمات تست
++
++### محدودیت تنوع سرور
++
++منابع رایگان معمولاً ده‌ها کانفیگ از یک سرور واحد منتشر می‌کنند.
++اگر آن سرور قطع شود، بخش بزرگی از اشتراک یک‌جا از کار می‌افتد.
++
++برای جلوگیری از این اتفاق، پس از تست اتصال حداکثر **۸ کانفیگ از هر
++سرور برای هر پروتکل** نگه داشته می‌شود و سریع‌ترین‌ها اولویت دارند.
++
++اثر آن روی داده‌ی واقعی:
++
++| شاخص | قبل | بعد |
++|---|:---:|:---:|
++| تعداد کانفیگ | ۸۵۴ | ۷۵۱ |
++| سرورهای یکتا | ۵۰۰ | ۵۰۰ |
++| بیشترین کانفیگ از یک IP | ۵۰ | ۱۱ |
++| سهم پرتکرارترین پورت | ۴۷٪ | ۴۳٪ |
++
++هیچ سروری کاملاً حذف نمی‌شود؛ فقط کانفیگ‌های اضافیِ سرورهای اشباع کم می‌شوند.
++
++با متغیرهای محیطی قابل کنترل است:
++
++| متغیر | پیش‌فرض | توضیح |
++|---|:---:|---|
++| `POPVPN_TEST` | `1` | فعال بودن تست اتصال |
++| `POPVPN_TEST_TIMEOUT` | `3` | مهلت هر اتصال (ثانیه) |
++| `POPVPN_TEST_WORKERS` | `100` | تعداد اتصال هم‌زمان |
++| `POPVPN_TEST_MAX` | `0` | سقف تعداد تست (صفر = بی‌نهایت) |
++| `POPVPN_TEST_TLS` | `0` | دست‌دادن TLS هم انجام شود |
++| `POPVPN_STRICT` | `1` | فیلتر کیفیت فعال باشد |
++| `POPVPN_MAX_PER_SERVER` | `8` | سقف کانفیگ از هر سرور برای هر پروتکل (صفر = بدون سقف) |
++
++اجرای سریع بدون تست:
++
++```bash
++POPVPN_TEST=0 python main.py
++```
++
++### ⚠️ محدودیت مهم این تست
++
++اتصال موفق TCP فقط ثابت می‌کند که **سرور در آن پورت در دسترس است**، نه اینکه **پروکسی با کلید شما کار می‌کند**.
++
++برای کانفیگ‌های پشت CDN (مثل Cloudflare) پورت ۴۴۳ همیشه باز است، حتی اگر Worker پشت آن از کار افتاده باشد. بنابراین این مرحله سرورهای «قطعاً مرده» را حذف می‌کند که بخش بزرگی از کانفیگ‌های بی‌کیفیت را می‌گیرد، اما **تضمین صددرصدی کارکرد نیست**.
++
++> 🛡️ **محافظ:** اگر نسبت سرورهای زنده به‌طور غیرعادی پایین باشد (زیر ۵٪)، احتمالاً شبکه‌ی اجراکننده مسدود شده است. در این حالت نتیجه‌ی تست نادیده گرفته می‌شود تا Subscription خالی منتشر نشود.
++
++---
++
++# 🛡️ فیلتر کیفیت
++
++کانفیگ‌هایی که از نظر فنی معتبر ولی انتخاب بدی هستند، حذف می‌شوند:
++
++| مورد | دلیل |
++|---|---|
++| Shadowsocks با `rc4-md5`، `aes-*-cfb`، `chacha20` | رمزنگاری شکسته یا منسوخ |
++| VMess با `alterId` بزرگ‌تر از صفر | روش احراز هویت قدیمی و منسوخ |
++| VLESS یا Trojan بدون TLS | ترافیک رمزنگاری‌نشده |
++
++غیرفعال کردن:
++
++```bash
++POPVPN_STRICT=0 python main.py
++```
++
++> اگر فیلتر کیفیت به هر دلیلی همه‌ی کانفیگ‌ها را حذف کند، به‌صورت خودکار نادیده گرفته می‌شود.
++
++---
++
++# 💡 پیشنهادهای بعدی
++
++مواردی که هنوز جا برای بهبود دارند:
++
++### 1️⃣ تست عبور ترافیک واقعی (بیشترین تأثیر باقی‌مانده)
++
++تست فعلی فقط در سطح TCP است. تست کامل نیازمند اجرای باینری **Xray** یا **sing-box** روی Runner، بالا آوردن هر کانفیگ و درخواست واقعی به `gstatic.com/generate_204` است.
++
++این کار دقت را از «سرور زنده است» به «پروکسی واقعاً کار می‌کند» می‌رساند، اما هر کانفیگ چند ثانیه زمان می‌برد، پس باید روی نمونه‌ی محدود یا با موازی‌سازی بالا اجرا شود.
++
++### 2️⃣ تفکیک بر اساس کشور
++
++با دیتابیس GeoIP می‌توان `outputs/by-country/de.txt` تولید کرد و نام نودها را به شکل `POPVPN | 🇩🇪 DE | 42ms` نمایش داد.
++
++### 3️⃣ نگهداری تاریخچه‌ی پایداری
++
++ثبت اینکه هر سرور در چند اجرای اخیر زنده بوده، و اولویت دادن به سرورهایی که **مداوم** پاسخ می‌دهند — نه آن‌هایی که یک‌بار شانسی زنده بودند.
++
++### 4️⃣ افزایش تعداد منابع
++
++هرچه منابع بیشتر باشند، شانس یافتن کانفیگ سالم بالاتر می‌رود. کافی است URL جدید را به `links.txt` اضافه کنید؛ بقیه مراحل خودکار است.
++
+ ---
+ 
+ # 📜 نکات و مسئولیت استفاده
+@@ -384,7 +761,13 @@ Workflow به‌صورت خودکار:
+ <img src="https://capsule-render.vercel.app/api?type=rect&height=80&color=0:06b6d4,50:7c3aed,100:0f172a&text=POPVPN%20%E2%80%94%20Updated%20Every%20Hour&fontColor=ffffff&fontSize=24&animation=twinkling" width="100%" alt="POPVPN footer" />
+ 
+ ### ⚡ POPVPN
+-**Clean • Fast • Automated • Hourly**
++**Tested • Sorted • Automated • Hourly**
++
++**🔗 لینک‌های سریع**
++
++[🏆 کامل](https://raw.githubusercontent.com/pouria08/popvpn/main/base64.txt) · [🟣 VLESS](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vless_base64.txt) · [🔵 VMess](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/vmess_base64.txt) · [🟠 Trojan](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/trojan_base64.txt) · [🟢 SS](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/shadowsocks_base64.txt)
++
++[🔒 Reality](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/reality_base64.txt) · [⚡ Clash](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/clash.yaml) · [📦 Sing-box](https://raw.githubusercontent.com/pouria08/popvpn/main/outputs/singbox.json) · [📊 آمار](https://raw.githubusercontent.com/pouria08/popvpn/main/stats.txt)
+ 
+ [⭐ Repository](https://github.com/pouria08/popvpn) · [⚙️ Actions](https://github.com/pouria08/popvpn/actions) · [📂 Outputs](https://github.com/pouria08/popvpn/tree/main/outputs)
+ 
+diff --git a/converters.py b/converters.py
+new file mode 100644
+index 0000000..39b1526
+--- /dev/null
++++ b/converters.py
+@@ -0,0 +1,1297 @@
++"""
++POPVPN — تبدیل کانفیگ به فرمت کلاینت‌های مختلف.
++
++این ماژول URI های VLESS / VMess / Trojan / Shadowsocks را به یک
++ساختار داده‌ی نرمال تبدیل می‌کند و سپس خروجی‌های زیر را می‌سازد:
++
++    - Clash Meta (Mihomo)  -> YAML
++    - Sing-box / Hiddify   -> JSON
++
++هدف این است که main.py فقط Pipeline را مدیریت کند و منطق
++تبدیل فرمت‌ها اینجا و قابل تست جدا باقی بماند.
++"""
++
++import base64
++import json
++import re
++import urllib.parse
++
++
++# ============================================================
++# BASE64 HELPER
++# ============================================================
++
++def _b64_decode(payload):
++    """
++    Decode Base64 tolerating missing padding and both the
++    standard and URL-safe alphabets.
++    """
++
++    if not payload:
++        return None
++
++    compact = re.sub(
++        r"\s+",
++        "",
++        payload
++    )
++
++    compact += "=" * ((-len(compact)) % 4)
++
++    for decoder in (
++        base64.b64decode,
++        base64.urlsafe_b64decode,
++    ):
++
++        try:
++
++            return decoder(
++                compact
++            ).decode(
++                "utf-8",
++                errors="ignore"
++            )
++
++        except Exception:
++
++            continue
++
++    return None
++
++
++def _first(query, *keys, default=""):
++    """
++    Return the first present value among several query keys.
++
++    Sources are inconsistent (sni vs peer, pbk vs publicKey),
++    so every field is looked up under all known aliases.
++    """
++
++    for key in keys:
++
++        values = query.get(key)
++
++        if values:
++
++            value = values[0].strip()
++
++            if value:
++                return value
++
++    return default
++
++
++def _is_true(value):
++
++    return str(value).strip().lower() in (
++        "1",
++        "true",
++        "yes",
++        "on",
++    )
++
++
++# ============================================================
++# NETWORK / TRANSPORT
++# ============================================================
++
++def _normalize_network(value):
++    """
++    Map the many spellings of a transport to a canonical name.
++    """
++
++    network = (value or "tcp").strip().lower()
++
++    aliases = {
++        "": "tcp",
++        "raw": "tcp",
++        "none": "tcp",
++        "h2": "http",
++        "h3": "http",
++        "xhttp": "http",
++        "splithttp": "http",
++    }
++
++    return aliases.get(
++        network,
++        network
++    )
++
++
++# ============================================================
++# PARSERS
++# ============================================================
++
++def parse_vless(uri):
++    """
++    Parse a vless:// URI.
++    """
++
++    parsed = urllib.parse.urlparse(uri)
++
++    if not parsed.hostname or not parsed.port:
++        return None
++
++    query = urllib.parse.parse_qs(
++        parsed.query
++    )
++
++    security = _first(
++        query,
++        "security",
++        default="none"
++    ).lower()
++
++    node = {
++        "protocol": "vless",
++        "server": parsed.hostname,
++        "port": int(parsed.port),
++        "uuid": urllib.parse.unquote(
++            parsed.username or ""
++        ),
++        "network": _normalize_network(
++            _first(query, "type", "headerType")
++        ),
++        "security": security,
++        "sni": _first(
++            query,
++            "sni",
++            "peer",
++            "host"
++        ),
++        "host": _first(query, "host"),
++        "path": urllib.parse.unquote(
++            _first(query, "path", default="/")
++        ),
++        "flow": _first(query, "flow"),
++        "fingerprint": _first(
++            query,
++            "fp",
++            default="chrome"
++        ),
++        "public_key": _first(
++            query,
++            "pbk",
++            "publicKey"
++        ),
++        "short_id": _first(
++            query,
++            "sid",
++            "shortId"
++        ),
++        "service_name": _first(
++            query,
++            "serviceName",
++            "servicename"
++        ),
++        "alpn": _first(query, "alpn"),
++        "insecure": _is_true(
++            _first(
++                query,
++                "allowInsecure",
++                "insecure",
++                default="0"
++            )
++        ),
++    }
++
++    if not node["uuid"]:
++        return None
++
++    return node
++
++
++def parse_vmess(uri):
++    """
++    Parse a vmess:// config.
++
++    Handles both the Base64 JSON body and the newer
++    uuid@host:port URI form.
++    """
++
++    body = uri[len("vmess://"):].strip()
++
++    if not body:
++        return None
++
++    # ----------------------------------------------------
++    # URI form
++    # ----------------------------------------------------
++
++    if "@" in body.split("?", 1)[0]:
++
++        parsed = urllib.parse.urlparse(uri)
++
++        if not parsed.hostname or not parsed.port:
++            return None
++
++        query = urllib.parse.parse_qs(
++            parsed.query
++        )
++
++        return {
++            "protocol": "vmess",
++            "server": parsed.hostname,
++            "port": int(parsed.port),
++            "uuid": urllib.parse.unquote(
++                parsed.username or ""
++            ),
++            "alter_id": 0,
++            "cipher": _first(
++                query,
++                "encryption",
++                default="auto"
++            ),
++            "network": _normalize_network(
++                _first(query, "type")
++            ),
++            "security": _first(
++                query,
++                "security",
++                default="none"
++            ).lower(),
++            "sni": _first(query, "sni", "host"),
++            "host": _first(query, "host"),
++            "path": urllib.parse.unquote(
++                _first(query, "path", default="/")
++            ),
++            "fingerprint": _first(query, "fp"),
++            "alpn": _first(query, "alpn"),
++            "insecure": False,
++            "service_name": "",
++        }
++
++    # ----------------------------------------------------
++    # Base64 JSON form
++    # ----------------------------------------------------
++
++    decoded = _b64_decode(
++        body.split("#", 1)[0]
++    )
++
++    if not decoded:
++        return None
++
++    try:
++
++        data = json.loads(decoded)
++
++    except Exception:
++
++        return None
++
++    if not isinstance(data, dict):
++        return None
++
++    server = str(
++        data.get("add", "")
++    ).strip()
++
++    uuid = str(
++        data.get("id", "")
++    ).strip()
++
++    port_raw = str(
++        data.get("port", "")
++    ).strip()
++
++    if not server or not uuid or not port_raw:
++        return None
++
++    try:
++
++        port = int(port_raw)
++
++    except Exception:
++
++        return None
++
++    tls_field = str(
++        data.get("tls", "")
++    ).strip().lower()
++
++    try:
++
++        alter_id = int(
++            str(
++                data.get("aid", 0)
++            ).strip() or 0
++        )
++
++    except Exception:
++
++        alter_id = 0
++
++    return {
++        "protocol": "vmess",
++        "server": server,
++        "port": port,
++        "uuid": uuid,
++        "alter_id": alter_id,
++        "cipher": str(
++            data.get("scy", "auto")
++        ).strip() or "auto",
++        "network": _normalize_network(
++            str(data.get("net", "tcp"))
++        ),
++        "security": "tls" if tls_field == "tls" else "none",
++        "sni": str(
++            data.get("sni", "")
++        ).strip(),
++        "host": str(
++            data.get("host", "")
++        ).strip(),
++        "path": str(
++            data.get("path", "/")
++        ).strip() or "/",
++        "fingerprint": str(
++            data.get("fp", "")
++        ).strip(),
++        "alpn": str(
++            data.get("alpn", "")
++        ).strip(),
++        "insecure": bool(
++            data.get("skip-cert-verify", False)
++        ),
++        "service_name": str(
++            data.get("path", "")
++        ).strip(),
++        "name": str(
++            data.get("ps", "")
++        ).strip(),
++    }
++
++
++def parse_trojan(uri):
++    """
++    Parse a trojan:// URI.
++    """
++
++    parsed = urllib.parse.urlparse(uri)
++
++    if not parsed.hostname or not parsed.port:
++        return None
++
++    password = urllib.parse.unquote(
++        parsed.username or ""
++    )
++
++    if not password:
++        return None
++
++    query = urllib.parse.parse_qs(
++        parsed.query
++    )
++
++    return {
++        "protocol": "trojan",
++        "server": parsed.hostname,
++        "port": int(parsed.port),
++        "password": password,
++        "network": _normalize_network(
++            _first(query, "type", "headerType")
++        ),
++        "security": _first(
++            query,
++            "security",
++            default="tls"
++        ).lower(),
++        "sni": _first(
++            query,
++            "sni",
++            "peer",
++            "host"
++        ),
++        "host": _first(query, "host"),
++        "path": urllib.parse.unquote(
++            _first(query, "path", default="/")
++        ),
++        "fingerprint": _first(query, "fp"),
++        "public_key": _first(query, "pbk"),
++        "short_id": _first(query, "sid"),
++        "service_name": _first(
++            query,
++            "serviceName",
++            "servicename"
++        ),
++        "alpn": _first(query, "alpn"),
++        "insecure": _is_true(
++            _first(
++                query,
++                "allowInsecure",
++                "insecure",
++                default="0"
++            )
++        ),
++    }
++
++
++def parse_shadowsocks(uri):
++    """
++    Parse an ss:// or shadowsocks:// URI.
++
++    Supported shapes:
++        ss://base64(method:pass)@host:port
++        ss://method:pass@host:port
++        ss://base64(method:pass@host:port)
++    """
++
++    body = uri.split("://", 1)[1]
++
++    body = body.split("#", 1)[0]
++
++    plugin_part = ""
++
++    if "?" in body:
++
++        body, plugin_part = body.split("?", 1)
++
++    method = ""
++    password = ""
++    host = ""
++    port = 0
++
++    if "@" in body:
++
++        userinfo, hostport = body.rsplit("@", 1)
++
++        decoded = _b64_decode(userinfo)
++
++        if decoded and ":" in decoded:
++
++            method, password = decoded.split(":", 1)
++
++        elif ":" in userinfo:
++
++            method, password = urllib.parse.unquote(
++                userinfo
++            ).split(":", 1)
++
++        else:
++
++            return None
++
++        if ":" not in hostport:
++            return None
++
++        host, port_raw = hostport.rsplit(":", 1)
++
++    else:
++
++        decoded = _b64_decode(body)
++
++        if not decoded or "@" not in decoded:
++            return None
++
++        userinfo, hostport = decoded.rsplit("@", 1)
++
++        if ":" not in userinfo or ":" not in hostport:
++            return None
++
++        method, password = userinfo.split(":", 1)
++
++        host, port_raw = hostport.rsplit(":", 1)
++
++    host = host.strip("[]")
++
++    try:
++
++        port = int(port_raw)
++
++    except Exception:
++
++        return None
++
++    if not method or not host or not port:
++        return None
++
++    # Plugins such as obfs are not representable in every
++    # client, so they are recorded but not expanded.
++    plugin = ""
++
++    if plugin_part:
++
++        query = urllib.parse.parse_qs(plugin_part)
++
++        plugin = _first(query, "plugin")
++
++    return {
++        "protocol": "shadowsocks",
++        "server": host,
++        "port": port,
++        "method": method.strip(),
++        "password": password,
++        "plugin": plugin,
++    }
++
++
++def parse_config(uri):
++    """
++    Parse any supported config URI into a normalized dict.
++
++    Returns None when the config cannot be represented.
++    """
++
++    if not uri:
++        return None
++
++    uri = uri.strip()
++
++    lower = uri.lower()
++
++    try:
++
++        if lower.startswith("vless://"):
++            node = parse_vless(uri)
++
++        elif lower.startswith("vmess://"):
++            node = parse_vmess(uri)
++
++        elif lower.startswith("trojan://"):
++            node = parse_trojan(uri)
++
++        elif (
++            lower.startswith("ss://")
++            or lower.startswith("shadowsocks://")
++        ):
++            node = parse_shadowsocks(uri)
++
++        else:
++            return None
++
++    except Exception:
++
++        return None
++
++    if not node:
++        return None
++
++    # Attach the display name from the fragment when present.
++    if "#" in uri:
++
++        fragment = uri.split("#", 1)[1]
++
++        name = urllib.parse.unquote(fragment).strip()
++
++        if name:
++            node["name"] = name
++
++    node.setdefault("name", "")
++
++    return node
++
++
++# ============================================================
++# CLASH META (MIHOMO)
++# ============================================================
++
++# Ciphers Clash Meta accepts for Shadowsocks. Anything else
++# would make the whole profile fail to load, so those nodes
++# are dropped from the Clash output only.
++CLASH_SS_CIPHERS = {
++    "aes-128-gcm",
++    "aes-192-gcm",
++    "aes-256-gcm",
++    "aes-128-cfb",
++    "aes-192-cfb",
++    "aes-256-cfb",
++    "aes-128-ctr",
++    "aes-192-ctr",
++    "aes-256-ctr",
++    "rc4-md5",
++    "chacha20-ietf",
++    "xchacha20",
++    "chacha20-ietf-poly1305",
++    "xchacha20-ietf-poly1305",
++    "2022-blake3-aes-128-gcm",
++    "2022-blake3-aes-256-gcm",
++    "2022-blake3-chacha20-poly1305",
++}
++
++# Transports Clash Meta can express.
++CLASH_NETWORKS = {
++    "tcp",
++    "ws",
++    "grpc",
++    "http",
++}
++
++
++def _clash_transport(node, proxy):
++    """
++    Fill in the transport specific keys of a Clash proxy.
++    """
++
++    network = node.get("network", "tcp")
++
++    if network == "ws":
++
++        ws_opts = {
++            "path": node.get("path") or "/",
++        }
++
++        host = node.get("host") or node.get("sni")
++
++        if host:
++
++            ws_opts["headers"] = {
++                "Host": host,
++            }
++
++        proxy["ws-opts"] = ws_opts
++
++    elif network == "grpc":
++
++        proxy["grpc-opts"] = {
++            "grpc-service-name": (
++                node.get("service_name")
++                or node.get("path")
++                or ""
++            ),
++        }
++
++    elif network == "http":
++
++        http_opts = {
++            "path": [
++                node.get("path") or "/",
++            ],
++        }
++
++        host = node.get("host")
++
++        if host:
++
++            http_opts["headers"] = {
++                "Host": [host],
++            }
++
++        proxy["http-opts"] = http_opts
++
++
++def to_clash_proxy(node, name):
++    """
++    Convert a normalized node into a Clash Meta proxy dict.
++
++    Returns None when Clash cannot represent the node.
++    """
++
++    if not node:
++        return None
++
++    protocol = node.get("protocol")
++
++    network = node.get("network", "tcp")
++
++    if protocol != "shadowsocks":
++
++        if network not in CLASH_NETWORKS:
++            return None
++
++    proxy = {
++        "name": name,
++        "server": node["server"],
++        "port": node["port"],
++    }
++
++    security = node.get("security", "none")
++
++    tls_on = security in ("tls", "reality")
++
++    if protocol == "vless":
++
++        # Clash Meta cannot express every xhttp variant.
++        proxy.update({
++            "type": "vless",
++            "uuid": node["uuid"],
++            "udp": True,
++            "tls": tls_on,
++            "network": network,
++        })
++
++        if node.get("flow"):
++            proxy["flow"] = node["flow"]
++
++        if node.get("sni"):
++            proxy["servername"] = node["sni"]
++
++        if node.get("fingerprint"):
++            proxy["client-fingerprint"] = node["fingerprint"]
++
++        if node.get("insecure"):
++            proxy["skip-cert-verify"] = True
++
++        if security == "reality":
++
++            if not node.get("public_key"):
++                return None
++
++            proxy["reality-opts"] = {
++                "public-key": node["public_key"],
++            }
++
++            if node.get("short_id"):
++                proxy["reality-opts"]["short-id"] = (
++                    node["short_id"]
++                )
++
++        _clash_transport(node, proxy)
++
++    elif protocol == "vmess":
++
++        proxy.update({
++            "type": "vmess",
++            "uuid": node["uuid"],
++            "alterId": node.get("alter_id", 0),
++            "cipher": node.get("cipher") or "auto",
++            "udp": True,
++            "tls": tls_on,
++            "network": network,
++        })
++
++        if node.get("sni"):
++            proxy["servername"] = node["sni"]
++
++        if node.get("insecure"):
++            proxy["skip-cert-verify"] = True
++
++        _clash_transport(node, proxy)
++
++    elif protocol == "trojan":
++
++        proxy.update({
++            "type": "trojan",
++            "password": node["password"],
++            "udp": True,
++        })
++
++        if node.get("sni"):
++            proxy["sni"] = node["sni"]
++
++        if node.get("insecure"):
++            proxy["skip-cert-verify"] = True
++
++        if security == "reality":
++            # Clash Meta has no reality support for trojan.
++            return None
++
++        if network in ("ws", "grpc"):
++
++            proxy["network"] = network
++
++            _clash_transport(node, proxy)
++
++    elif protocol == "shadowsocks":
++
++        cipher = node.get("method", "").lower()
++
++        if cipher not in CLASH_SS_CIPHERS:
++            return None
++
++        if node.get("plugin"):
++            return None
++
++        proxy.update({
++            "type": "ss",
++            "cipher": cipher,
++            "password": node["password"],
++            "udp": True,
++        })
++
++    else:
++
++        return None
++
++    return proxy
++
++
++# ============================================================
++# SING-BOX
++# ============================================================
++
++# Transports sing-box can express.
++SINGBOX_NETWORKS = {
++    "tcp",
++    "ws",
++    "grpc",
++    "http",
++}
++
++
++def _singbox_tls(node):
++    """
++    Build the sing-box tls block for a node.
++    """
++
++    security = node.get("security", "none")
++
++    if security not in ("tls", "reality"):
++        return None
++
++    tls = {
++        "enabled": True,
++    }
++
++    server_name = node.get("sni") or node.get("host")
++
++    if server_name:
++        tls["server_name"] = server_name
++
++    if node.get("insecure"):
++        tls["insecure"] = True
++
++    alpn = node.get("alpn")
++
++    if alpn:
++
++        tls["alpn"] = [
++            item.strip()
++            for item in alpn.split(",")
++            if item.strip()
++        ]
++
++    fingerprint = node.get("fingerprint")
++
++    if fingerprint:
++
++        tls["utls"] = {
++            "enabled": True,
++            "fingerprint": fingerprint,
++        }
++
++    if security == "reality":
++
++        if not node.get("public_key"):
++            return None
++
++        reality = {
++            "enabled": True,
++            "public_key": node["public_key"],
++        }
++
++        if node.get("short_id"):
++            reality["short_id"] = node["short_id"]
++
++        tls["reality"] = reality
++
++        # Reality always requires uTLS.
++        tls.setdefault(
++            "utls",
++            {
++                "enabled": True,
++                "fingerprint": "chrome",
++            }
++        )
++
++    return tls
++
++
++def _singbox_transport(node):
++    """
++    Build the sing-box transport block for a node.
++    """
++
++    network = node.get("network", "tcp")
++
++    if network == "ws":
++
++        transport = {
++            "type": "ws",
++            "path": node.get("path") or "/",
++        }
++
++        host = node.get("host") or node.get("sni")
++
++        if host:
++
++            transport["headers"] = {
++                "Host": host,
++            }
++
++        return transport
++
++    if network == "grpc":
++
++        return {
++            "type": "grpc",
++            "service_name": (
++                node.get("service_name")
++                or node.get("path")
++                or ""
++            ),
++        }
++
++    if network == "http":
++
++        transport = {
++            "type": "http",
++            "path": node.get("path") or "/",
++        }
++
++        host = node.get("host")
++
++        if host:
++            transport["host"] = [host]
++
++        return transport
++
++    return None
++
++
++def to_singbox_outbound(node, tag):
++    """
++    Convert a normalized node into a sing-box outbound dict.
++
++    Returns None when sing-box cannot represent the node.
++    """
++
++    if not node:
++        return None
++
++    protocol = node.get("protocol")
++
++    network = node.get("network", "tcp")
++
++    if protocol != "shadowsocks":
++
++        if network not in SINGBOX_NETWORKS:
++            return None
++
++    outbound = {
++        "tag": tag,
++        "server": node["server"],
++        "server_port": node["port"],
++    }
++
++    if protocol == "vless":
++
++        outbound["type"] = "vless"
++        outbound["uuid"] = node["uuid"]
++
++        if node.get("flow"):
++            outbound["flow"] = node["flow"]
++
++    elif protocol == "vmess":
++
++        outbound["type"] = "vmess"
++        outbound["uuid"] = node["uuid"]
++        outbound["alter_id"] = node.get("alter_id", 0)
++        outbound["security"] = node.get("cipher") or "auto"
++
++    elif protocol == "trojan":
++
++        outbound["type"] = "trojan"
++        outbound["password"] = node["password"]
++
++    elif protocol == "shadowsocks":
++
++        if node.get("plugin"):
++            return None
++
++        outbound["type"] = "shadowsocks"
++        outbound["method"] = node["method"]
++        outbound["password"] = node["password"]
++
++        return outbound
++
++    else:
++
++        return None
++
++    tls = _singbox_tls(node)
++
++    if tls:
++        outbound["tls"] = tls
++
++    transport = _singbox_transport(node)
++
++    if transport:
++        outbound["transport"] = transport
++
++    return outbound
++
++
++# ============================================================
++# MINIMAL YAML WRITER
++# ============================================================
++
++def _yaml_scalar(value):
++    """
++    Render a scalar as YAML.
++
++    Strings are always quoted so that passwords, paths and
++    names containing ':', '#' or emoji never break parsing.
++    """
++
++    if isinstance(value, bool):
++        return "true" if value else "false"
++
++    if isinstance(value, int):
++        return str(value)
++
++    text = str(value)
++
++    escaped = (
++        text
++        .replace("\\", "\\\\")
++        .replace('"', '\\"')
++        .replace("\n", "\\n")
++        .replace("\r", "")
++        .replace("\t", "\\t")
++    )
++
++    return f'"{escaped}"'
++
++
++def _yaml_block(data, indent):
++    """
++    Render a nested dict/list structure as YAML lines.
++    """
++
++    pad = " " * indent
++
++    lines = []
++
++    if isinstance(data, dict):
++
++        for key, value in data.items():
++
++            if isinstance(value, (dict, list)):
++
++                if not value:
++                    continue
++
++                lines.append(f"{pad}{key}:")
++
++                lines.extend(
++                    _yaml_block(
++                        value,
++                        indent + 2
++                    )
++                )
++
++            else:
++
++                lines.append(
++                    f"{pad}{key}: "
++                    f"{_yaml_scalar(value)}"
++                )
++
++    elif isinstance(data, list):
++
++        for item in data:
++
++            if isinstance(item, dict):
++
++                rendered = _yaml_block(item, indent + 2)
++
++                if not rendered:
++                    continue
++
++                first = rendered[0].lstrip()
++
++                lines.append(f"{pad}- {first}")
++
++                lines.extend(rendered[1:])
++
++            else:
++
++                lines.append(
++                    f"{pad}- {_yaml_scalar(item)}"
++                )
++
++    return lines
++
++
++def build_clash_yaml(
++    proxies,
++    profile_name="POPVPN"
++):
++    """
++    Build a complete Clash Meta configuration.
++
++    Includes a URL-test group so the client always picks the
++    lowest latency node automatically.
++    """
++
++    names = [
++        proxy["name"]
++        for proxy in proxies
++    ]
++
++    header = [
++        f"# {profile_name} — Clash Meta / Mihomo",
++        "# https://github.com/pouria08/popvpn",
++        "",
++        "mixed-port: 7890",
++        "allow-lan: false",
++        "mode: rule",
++        "log-level: info",
++        "external-controller: 127.0.0.1:9090",
++        "",
++        "dns:",
++        "  enable: true",
++        "  ipv6: false",
++        "  enhanced-mode: fake-ip",
++        "  fake-ip-range: 198.18.0.1/16",
++        "  nameserver:",
++        '    - "https://1.1.1.1/dns-query"',
++        '    - "https://8.8.8.8/dns-query"',
++        "",
++        "proxies:",
++    ]
++
++    lines = list(header)
++
++    lines.extend(
++        _yaml_block(proxies, 2)
++    )
++
++    groups = [
++        {
++            "name": f"{profile_name} — Auto",
++            "type": "url-test",
++            "url": "http://www.gstatic.com/generate_204",
++            "interval": 300,
++            "tolerance": 50,
++            "proxies": names,
++        },
++        {
++            "name": f"{profile_name} — Select",
++            "type": "select",
++            "proxies": (
++                [f"{profile_name} — Auto"] + names
++            ),
++        },
++    ]
++
++    lines.append("")
++    lines.append("proxy-groups:")
++
++    lines.extend(
++        _yaml_block(groups, 2)
++    )
++
++    lines.append("")
++    lines.append("rules:")
++    lines.append("  - GEOIP,private,DIRECT,no-resolve")
++    lines.append(
++        f"  - MATCH,{profile_name} — Select"
++    )
++    lines.append("")
++
++    return "\n".join(lines)
++
++
++def build_singbox_json(
++    outbounds,
++    profile_name="POPVPN"
++):
++    """
++    Build a complete sing-box configuration.
++
++    The structure follows the sing-box 1.8+ schema used by
++    Hiddify Next and the official sing-box clients.
++    """
++
++    tags = [
++        outbound["tag"]
++        for outbound in outbounds
++    ]
++
++    auto_tag = f"{profile_name} — Auto"
++    select_tag = f"{profile_name} — Select"
++
++    config = {
++        "log": {
++            "level": "info",
++            "timestamp": True,
++        },
++        "dns": {
++            "servers": [
++                {
++                    "tag": "remote",
++                    "address": "https://1.1.1.1/dns-query",
++                    "detour": select_tag,
++                },
++                {
++                    "tag": "local",
++                    "address": "local",
++                    "detour": "direct",
++                },
++            ],
++            "rules": [
++                {
++                    "outbound": "any",
++                    "server": "local",
++                },
++            ],
++            "final": "remote",
++            "strategy": "ipv4_only",
++        },
++        "inbounds": [
++            {
++                "type": "mixed",
++                "tag": "mixed-in",
++                "listen": "127.0.0.1",
++                "listen_port": 2080,
++                "sniff": True,
++            },
++        ],
++        "outbounds": (
++            [
++                {
++                    "type": "selector",
++                    "tag": select_tag,
++                    "outbounds": [auto_tag] + tags,
++                    "default": auto_tag,
++                },
++                {
++                    "type": "urltest",
++                    "tag": auto_tag,
++                    "outbounds": tags,
++                    "url": (
++                        "http://www.gstatic.com/"
++                        "generate_204"
++                    ),
++                    "interval": "5m",
++                    "tolerance": 50,
++                },
++            ]
++            + outbounds
++            + [
++                {
++                    "type": "direct",
++                    "tag": "direct",
++                },
++                {
++                    "type": "block",
++                    "tag": "block",
++                },
++                {
++                    "type": "dns",
++                    "tag": "dns-out",
++                },
++            ]
++        ),
++        "route": {
++            "rules": [
++                {
++                    "protocol": "dns",
++                    "outbound": "dns-out",
++                },
++                {
++                    "ip_is_private": True,
++                    "outbound": "direct",
++                },
++            ],
++            "final": select_tag,
++            "auto_detect_interface": True,
++        },
++    }
++
++    return json.dumps(
++        config,
++        ensure_ascii=False,
++        indent=2
++    )
+diff --git a/links.txt b/links.txt
+index 288b9af..740334d 100644
+--- a/links.txt
++++ b/links.txt
+@@ -1,7 +1,26 @@
+-https://raw.githubusercontent.com/RKPchannel/RKP_bypass_configs/refs/heads/main/whitelist.txt
++# POPVPN — منابع Subscription
++# خطوط خالی و خطوطی که با # شروع شوند نادیده گرفته می‌شوند.
++
++# --- منابع تست‌شده (Mixed) ---
+ https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt
+-https://raw.githubusercontent.com/pouria08/popvip/refs/heads/master/Eternity.txt
+-https://9dz4quexuuos.javad-ghoreyshi11.workers.dev/feed/pouria2
+-https://gitverse.ru/api/repos/flaafix/AetrisVPN_Black_list/raw/branch/master/configs.txt
++https://raw.githubusercontent.com/MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/all_sub.txt
++https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt
++https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt
++
++# --- تفکیک‌شده بر اساس پروتکل (برای پوشش VMess / Shadowsocks / Trojan) ---
++https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/vmess.txt
++https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/ss.txt
++https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/trojan.txt
++https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/trojan.txt
++
++# --- AetrisVPN (gitverse) ---
+ https://gitverse.ru/api/repos/flaafix/AetrisVPN/raw/branch/master/AetrisVPN.txt
++https://gitverse.ru/api/repos/flaafix/AetrisVPN_Black_list/raw/branch/master/configs.txt
+ 
++# --- منابع غیرفعال / خراب (۲۰۲۶-۰۹-۲۰) ---
++# 404 — مخزن حذف شده است:
++# https://raw.githubusercontent.com/pouria08/popvip/refs/heads/master/Eternity.txt
++# خالی — فقط هدر پروفایل بدون کانفیگ:
++# https://raw.githubusercontent.com/RKPchannel/RKP_bypass_configs/refs/heads/main/whitelist.txt
++# Cloudflare Error 1027 — سقف پلن Worker پر شده:
++# https://9dz4quexuuos.javad-ghoreyshi11.workers.dev/feed/pouria2
+diff --git a/main.py b/main.py
+index 7bb2685..45c580a 100644
+--- a/main.py
++++ b/main.py
+@@ -1,12 +1,17 @@
+ import base64
+ import html
++import json
+ import os
++import re
+ import urllib.parse
+ 
+ import requests
+ from requests.adapters import HTTPAdapter
+ from urllib3.util.retry import Retry
+ 
++import converters
++import tester
++
+ 
+ # ============================================================
+ # POPVPN CONFIGURATION
+@@ -19,6 +24,14 @@ MAIN_CONFIG_FILE = "working_configs.txt"
+ MAIN_BASE64_FILE = "base64.txt"
+ STATS_FILE = "stats.txt"
+ 
++# Client specific profiles.
++CLASH_FILE = "clash.yaml"
++SINGBOX_FILE = "singbox.json"
++
++# Reality only subscription.
++REALITY_FILE = "reality_configs.txt"
++REALITY_BASE64_FILE = "reality_base64.txt"
++
+ 
+ # ============================================================
+ # HIDDIFY PROFILE
+@@ -48,6 +61,18 @@ SUPPORTED_PROTOCOLS = (
+     "shadowsocks://",
+ )
+ 
++# URI schemes that belong to each protocol category.
++# Shadowsocks is published under two different schemes.
++PROTOCOL_SCHEMES = {
++    "vless": ("vless",),
++    "vmess": ("vmess",),
++    "trojan": ("trojan",),
++    "shadowsocks": (
++        "ss",
++        "shadowsocks",
++    ),
++}
++
+ 
+ # ============================================================
+ # HTTP SESSION
+@@ -92,8 +117,17 @@ def create_session():
+         adapter
+     )
+ 
++    # Some providers block unknown agents or serve
++    # different content to non-browser clients.
+     session.headers.update({
+-        "User-Agent": "POPVPN-AutoUpdater/2.0"
++        "User-Agent": (
++            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
++            "AppleWebKit/537.36 (KHTML, like Gecko) "
++            "Chrome/127.0.0.0 Safari/537.36"
++        ),
++        "Accept": "*/*",
++        "Accept-Encoding": "gzip, deflate",
++        "Cache-Control": "no-cache",
+     })
+ 
+     return session
+@@ -206,6 +240,93 @@ def add_hiddify_metadata(configs):
+     )
+ 
+ 
++# ============================================================
++# BASE64 HELPER
++# ============================================================
++
++def try_decode_base64(content):
++    """
++    Try to decode a subscription body that may be Base64.
++
++    Tolerates the real-world variations that a strict
++    validate=True decode rejects:
++
++    - line breaks / spaces inside the payload
++    - missing '=' padding
++    - URL-safe alphabet ('-' and '_')
++
++    Returns the decoded text, or None when the content is
++    not Base64 (i.e. it is already plain text).
++    """
++
++    if not content:
++        return None
++
++    # A plain-text subscription starts with a protocol or a
++    # '#' metadata header, so never treat it as Base64.
++    stripped = content.lstrip()
++
++    if stripped.startswith("#"):
++        return None
++
++    if stripped.lower().startswith(
++        SUPPORTED_PROTOCOLS
++    ):
++        return None
++
++    # Remove all whitespace before decoding.
++    compact = re.sub(
++        r"\s+",
++        "",
++        content
++    )
++
++    if len(compact) < 16:
++        return None
++
++    if not re.fullmatch(
++        r"[A-Za-z0-9+/\-_=]+",
++        compact
++    ):
++        return None
++
++    # Restore padding to a multiple of 4.
++    padding = (-len(compact)) % 4
++
++    candidate = compact + ("=" * padding)
++
++    for decoder in (
++        base64.b64decode,
++        base64.urlsafe_b64decode,
++    ):
++
++        try:
++
++            decoded = decoder(
++                candidate
++            ).decode(
++                "utf-8",
++                errors="ignore"
++            )
++
++        except Exception:
++
++            continue
++
++        # Only accept the result if it actually looks
++        # like a config list.
++        if decoded and (
++            decoded.lstrip().lower().startswith(
++                SUPPORTED_PROTOCOLS
++            )
++            or "://" in decoded
++        ):
++
++            return decoded
++
++    return None
++
++
+ # ============================================================
+ # FETCH SUBSCRIPTION
+ # ============================================================
+@@ -253,6 +374,28 @@ def fetch_configs_from_url(url):
+ 
+             return []
+ 
++        # ----------------------------------------------------
++        # Detect error pages served with HTTP 200.
++        # ----------------------------------------------------
++
++        head = content[:600].lower()
++
++        if head.startswith("<!doctype html") or head.startswith("<html"):
++
++            print(
++                "پاسخ یک صفحه HTML بود، نه Subscription."
++            )
++
++            return []
++
++        if "error 1027" in head or "rate limited" in head:
++
++            print(
++                "منبع توسط Cloudflare محدود شده است."
++            )
++
++            return []
++
+         # ----------------------------------------------------
+         # First decode HTML entities.
+         # ----------------------------------------------------
+@@ -265,23 +408,9 @@ def fetch_configs_from_url(url):
+         # Try Base64 decoding.
+         # ----------------------------------------------------
+ 
+-        decoded_content = None
+-
+-        try:
+-
+-            decoded_content = (
+-                base64.b64decode(
+-                    content,
+-                    validate=True
+-                )
+-                .decode(
+-                    "utf-8"
+-                )
+-            )
+-
+-        except Exception:
+-
+-            decoded_content = None
++        decoded_content = try_decode_base64(
++            content
++        )
+ 
+         if decoded_content:
+ 
+@@ -414,6 +543,49 @@ def load_links():
+ # REMOVE DUPLICATES
+ # ============================================================
+ 
++def config_identity(config):
++    """
++    Build a semantic identity for a config.
++
++    Two configs pointing at the same endpoint with the same
++    credentials are the same node even when their query
++    parameters are ordered differently or their names differ.
++    Falls back to the raw string when the config cannot be
++    parsed, so nothing is ever lost.
++    """
++
++    node = converters.parse_config(
++        config
++    )
++
++    if not node:
++
++        return config.split(
++            "#",
++            1
++        )[0].strip()
++
++    protocol = node.get("protocol", "")
++
++    secret = (
++        node.get("uuid")
++        or node.get("password")
++        or ""
++    )
++
++    return "|".join([
++        protocol,
++        str(node.get("server", "")).lower(),
++        str(node.get("port", "")),
++        secret,
++        node.get("network", ""),
++        node.get("security", ""),
++        node.get("path", ""),
++        node.get("sni", ""),
++        node.get("method", ""),
++    ])
++
++
+ def remove_duplicates(configs):
+     """
+     Remove duplicate VPN configs.
+@@ -441,11 +613,15 @@ def remove_duplicates(configs):
+         if not base:
+             continue
+ 
+-        if base in seen:
++        identity = config_identity(
++            cleaned
++        )
++
++        if identity in seen:
+             continue
+ 
+         seen.add(
+-            base
++            identity
+         )
+ 
+         unique_configs.append(
+@@ -537,12 +713,24 @@ def validate_uri(
+             config
+         )
+ 
+-        if parsed.scheme.lower() != protocol:
++        scheme = parsed.scheme.lower()
++
++        # ----------------------------------------------------
++        # Accept every scheme that maps to this protocol.
++        # 'ss' and 'shadowsocks' are the same protocol, so a
++        # plain string comparison would reject all ss:// URIs.
++        # ----------------------------------------------------
++
++        allowed_schemes = PROTOCOL_SCHEMES.get(
++            protocol,
++            (protocol,)
++        )
++
++        if scheme not in allowed_schemes:
+             return False
+ 
+         if protocol in (
+             "vless",
+-            "vmess",
+             "trojan",
+         ):
+ 
+@@ -552,10 +740,20 @@ def validate_uri(
+             if not parsed.port:
+                 return False
+ 
+-        elif protocol == "shadowsocks":
++            return True
+ 
+-            if not parsed.netloc:
+-                return False
++        if protocol == "vmess":
++
++            return validate_vmess(
++                config
++            )
++
++        if protocol == "shadowsocks":
++
++            return validate_shadowsocks(
++                config,
++                parsed
++            )
+ 
+         return True
+ 
+@@ -564,18 +762,262 @@ def validate_uri(
+         return False
+ 
+ 
++def validate_vmess(config):
++    """
++    Validate a vmess:// config.
++
++    VMess normally carries a Base64 encoded JSON body rather
++    than a regular URI, so urlparse cannot find a host/port.
++    Both the JSON form and the newer URI form are accepted.
++    """
++
++    body = config[len("vmess://"):].strip()
++
++    if not body:
++        return False
++
++    # ----------------------------------------------------
++    # Form 1: vmess://uuid@host:port?params
++    # ----------------------------------------------------
++
++    if "@" in body.split("?", 1)[0]:
++
++        parsed = urllib.parse.urlparse(
++            config
++        )
++
++        return bool(
++            parsed.hostname
++            and parsed.port
++        )
++
++    # ----------------------------------------------------
++    # Form 2: vmess://<base64 json>
++    # ----------------------------------------------------
++
++    payload = body.split("#", 1)[0]
++
++    compact = re.sub(
++        r"\s+",
++        "",
++        payload
++    )
++
++    compact += "=" * ((-len(compact)) % 4)
++
++    for decoder in (
++        base64.b64decode,
++        base64.urlsafe_b64decode,
++    ):
++
++        try:
++
++            decoded = decoder(
++                compact
++            ).decode(
++                "utf-8",
++                errors="ignore"
++            )
++
++            data = json.loads(
++                decoded
++            )
++
++        except Exception:
++
++            continue
++
++        if not isinstance(data, dict):
++            continue
++
++        address = str(
++            data.get("add", "")
++        ).strip()
++
++        port = str(
++            data.get("port", "")
++        ).strip()
++
++        uid = str(
++            data.get("id", "")
++        ).strip()
++
++        if address and port and uid:
++            return True
++
++    return False
++
++
++def validate_shadowsocks(
++    config,
++    parsed
++):
++    """
++    Validate an ss:// or shadowsocks:// config.
++
++    Supported shapes:
++      ss://<base64 method:pass>@host:port
++      ss://<method:pass>@host:port
++      ss://<base64 of the whole method:pass@host:port>
++    """
++
++    if parsed.hostname and parsed.port:
++        return True
++
++    # Fully Base64 encoded body.
++
++    body = config.split("://", 1)[1]
++
++    payload = body.split("#", 1)[0].split("?", 1)[0]
++
++    compact = re.sub(
++        r"\s+",
++        "",
++        payload
++    )
++
++    compact += "=" * ((-len(compact)) % 4)
++
++    for decoder in (
++        base64.b64decode,
++        base64.urlsafe_b64decode,
++    ):
++
++        try:
++
++            decoded = decoder(
++                compact
++            ).decode(
++                "utf-8",
++                errors="ignore"
++            )
++
++        except Exception:
++
++            continue
++
++        if "@" not in decoded:
++            continue
++
++        host_part = decoded.rsplit("@", 1)[1]
++
++        if ":" not in host_part:
++            continue
++
++        port = host_part.rsplit(":", 1)[1]
++
++        if port.isdigit():
++            return True
++
++    return False
++
++
+ # ============================================================
+ # CATEGORIZE
+ # ============================================================
+ 
++def rename_config(
++    config,
++    protocol,
++    new_name
++):
++    """
++    Apply the POPVPN display name to a config.
++
++    For URI style configs the name lives in the fragment.
++    For Base64 VMess configs it lives in the JSON 'ps' field,
++    so the payload is re-encoded instead of getting a
++    fragment appended, which some clients refuse to parse.
++    """
++
++    body = config.split("://", 1)[1]
++
++    is_b64_vmess = (
++        protocol == "vmess"
++        and "@" not in body.split("?", 1)[0]
++    )
++
++    if is_b64_vmess:
++
++        payload = body.split("#", 1)[0]
++
++        compact = re.sub(
++            r"\s+",
++            "",
++            payload
++        )
++
++        compact += "=" * ((-len(compact)) % 4)
++
++        for decoder in (
++            base64.b64decode,
++            base64.urlsafe_b64decode,
++        ):
++
++            try:
++
++                data = json.loads(
++                    decoder(
++                        compact
++                    ).decode(
++                        "utf-8",
++                        errors="ignore"
++                    )
++                )
++
++            except Exception:
++
++                continue
++
++            if not isinstance(data, dict):
++                continue
++
++            data["ps"] = new_name
++
++            reencoded = base64.b64encode(
++                json.dumps(
++                    data,
++                    ensure_ascii=False,
++                    separators=(",", ":"),
++                ).encode("utf-8")
++            ).decode("utf-8")
++
++            return f"vmess://{reencoded}"
++
++        return None
++
++    base_config = config.split(
++        "#",
++        1
++    )[0]
++
++    encoded_name = urllib.parse.quote(
++        new_name,
++        safe=""
++    )
++
++    return (
++        f"{base_config}"
++        f"#{encoded_name}"
++    )
++
++
+ def process_and_categorize(
+-    configs
++    configs,
++    latencies=None
+ ):
+     """
+     Categorize configs by protocol
+     and generate readable names.
++
++    When latency measurements are available the measured round
++    trip time is shown in the node name, so the user can see
++    at a glance which servers are fastest.
+     """
+ 
++    if latencies is None:
++        latencies = {}
++
+     categories = {
+         "vless": [],
+         "vmess": [],
+@@ -650,15 +1092,6 @@ def process_and_categorize(
+ 
+             continue
+ 
+-        # ----------------------------------------------------
+-        # Remove old name
+-        # ----------------------------------------------------
+-
+-        base_config = cleaned.split(
+-            "#",
+-            1
+-        )[0]
+-
+         # ----------------------------------------------------
+         # Create POPVPN name
+         # ----------------------------------------------------
+@@ -669,16 +1102,29 @@ def process_and_categorize(
+             f"{counters[protocol]}"
+         )
+ 
+-        encoded_name = urllib.parse.quote(
+-            new_name,
+-            safe=""
++        latency = latencies.get(
++            cleaned
+         )
+ 
+-        final_config = (
+-            f"{base_config}"
+-            f"#{encoded_name}"
++        if latency is not None:
++
++            new_name = (
++                f"{new_name} | "
++                f"{latency}ms"
++            )
++
++        final_config = rename_config(
++            cleaned,
++            protocol,
++            new_name
+         )
+ 
++        if not final_config:
++
++            rejected += 1
++
++            continue
++
+         categories[
+             protocol
+         ].append(
+@@ -759,6 +1205,12 @@ def clear_old_output_files():
+         "shadowsocks_configs.txt",
+         "shadowsocks_base64.txt",
+ 
++        CLASH_FILE,
++        SINGBOX_FILE,
++
++        REALITY_FILE,
++        REALITY_BASE64_FILE,
++
+     ]
+ 
+     for filename in files:
+@@ -787,23 +1239,536 @@ def clear_old_output_files():
+ 
+ 
+ # ============================================================
+-# WRITE PROTOCOL OUTPUTS
++# QUALITY FILTER
+ # ============================================================
+ 
+-def write_protocol_outputs(
+-    categorized_configs
+-):
++# Shadowsocks ciphers that are considered broken or unsafe.
++WEAK_SS_CIPHERS = {
++    "rc4",
++    "rc4-md5",
++    "table",
++    "plain",
++    "none",
++    "bf-cfb",
++    "des-cfb",
++    "aes-128-cfb",
++    "aes-192-cfb",
++    "aes-256-cfb",
++    "aes-128-ctr",
++    "aes-192-ctr",
++    "aes-256-ctr",
++    "salsa20",
++    "chacha20",
++}
++
++
++def is_low_quality(config):
+     """
+-    Generate protocol-specific subscriptions.
++    Detect configs that are technically valid but a poor
++    choice, so they can be dropped before publishing.
++
++    Returns a reason string, or None when the config is fine.
+     """
+ 
+-    all_configs = []
++    node = converters.parse_config(
++        config
++    )
+ 
+-    stats = []
++    if not node:
++        return None
+ 
+-    total_active = 0
++    protocol = node.get("protocol")
+ 
+-    for protocol, configs in (
++    # --------------------------------------------------------
++    # Obsolete Shadowsocks ciphers.
++    # --------------------------------------------------------
++
++    if protocol == "shadowsocks":
++
++        method = node.get(
++            "method",
++            ""
++        ).strip().lower()
++
++        if method in WEAK_SS_CIPHERS:
++
++            return f"cipher {method}"
++
++    # --------------------------------------------------------
++    # VMess with a non zero alterId uses the legacy, and long
++    # deprecated, authentication scheme.
++    # --------------------------------------------------------
++
++    if protocol == "vmess":
++
++        if node.get("alter_id", 0):
++
++            return "legacy alterId"
++
++    # --------------------------------------------------------
++    # Unencrypted transport on a plaintext port.
++    # --------------------------------------------------------
++
++    security = node.get(
++        "security",
++        "none"
++    )
++
++    if protocol in ("vless", "trojan"):
++
++        if security not in ("tls", "reality"):
++
++            return "no TLS"
++
++    return None
++
++
++def filter_low_quality(configs):
++    """
++    Remove configs flagged as low quality.
++
++    Disabled by setting POPVPN_STRICT=0.
++    """
++
++    strict = os.environ.get(
++        "POPVPN_STRICT",
++        "1"
++    ).strip().lower()
++
++    if strict in ("0", "false", "no", "off"):
++
++        print(
++            "فیلتر کیفیت غیرفعال است (POPVPN_STRICT=0)."
++        )
++
++        return configs
++
++    kept = []
++
++    reasons = {}
++
++    for config in configs:
++
++        reason = is_low_quality(
++            config
++        )
++
++        if reason:
++
++            reasons[reason] = reasons.get(
++                reason,
++                0
++            ) + 1
++
++            continue
++
++        kept.append(config)
++
++    removed = len(configs) - len(kept)
++
++    if removed:
++
++        print(
++            f"فیلتر کیفیت: {removed} کانفیگ حذف شد"
++        )
++
++        for reason, count in sorted(
++            reasons.items(),
++            key=lambda item: -item[1]
++        ):
++
++            print(
++                f"  - {reason}: {count}"
++            )
++
++    # Never let the quality filter empty the subscription.
++    if not kept:
++
++        print(
++            "فیلتر کیفیت همه را حذف کرد؛ نادیده گرفته شد."
++        )
++
++        return configs
++
++    return kept
++
++
++# ============================================================
++# ENV HELPERS
++# ============================================================
++
++def _env_int(name, default):
++    """
++    Read an integer setting from the environment.
++    """
++
++    try:
++
++        value = os.environ.get(name, "").strip()
++
++        if not value:
++            return default
++
++        return int(value)
++
++    except Exception:
++
++        return default
++
++
++# ============================================================
++# DIVERSITY LIMIT
++# ============================================================
++
++# حداکثر تعداد کانفیگ مجاز از هر سرور (IP یا دامنه).
++#
++# منابع اغلب یک سرور را ده‌ها بار با پارامترهای کمی متفاوت
++# منتشر می‌کنند. نتیجه فهرستی است که عدد بزرگی نشان می‌دهد
++# ولی در عمل روی چند سرور محدود متمرکز است و آن سرورها هم
++# اشباع و کند می‌شوند.
++MAX_PER_SERVER = 8
++
++
++def limit_per_server(configs):
++    """
++    Cap how many configs may come from a single server.
++
++    The input order matters: configs arrive sorted fastest
++    first, so the entries kept for each server are its best
++    performing ones.
++
++    Disabled by setting POPVPN_MAX_PER_SERVER=0.
++    """
++
++    limit = _env_int(
++        "POPVPN_MAX_PER_SERVER",
++        MAX_PER_SERVER
++    )
++
++    if limit <= 0:
++        return configs
++
++    seen = {}
++
++    kept = []
++
++    dropped = 0
++
++    for config in configs:
++
++        node = converters.parse_config(
++            config
++        )
++
++        if not node:
++
++            kept.append(config)
++
++            continue
++
++        # The cap is per server *and* protocol. A server that
++        # offers VLESS, Trojan and Shadowsocks should not lose
++        # two of them just because the third filled the quota.
++        key = (
++            str(
++                node.get("server", "")
++            ).lower(),
++            node.get("protocol", ""),
++        )
++
++        count = seen.get(key, 0)
++
++        if count >= limit:
++
++            dropped += 1
++
++            continue
++
++        seen[key] = count + 1
++
++        kept.append(config)
++
++    if dropped:
++
++        print(
++            f"محدودیت تنوع: {dropped} کانفیگ "
++            f"از سرورهای پرتکرار حذف شد "
++            f"(سقف {limit} در هر سرور)"
++        )
++
++    # Never let the diversity limit empty the subscription.
++    if not kept:
++        return configs
++
++    return kept
++
++
++def diversity_report(configs):
++    """
++    Summarize how concentrated the published list is.
++
++    A list spread across many servers and ports survives an
++    ISP blocking a single port far better than one where most
++    entries share the same endpoint.
++    """
++
++    servers = {}
++    ports = {}
++
++    for config in configs:
++
++        node = converters.parse_config(
++            config
++        )
++
++        if not node:
++            continue
++
++        server = str(
++            node.get("server", "")
++        ).lower()
++
++        port = node.get("port")
++
++        servers[server] = servers.get(server, 0) + 1
++        ports[port] = ports.get(port, 0) + 1
++
++    total = sum(servers.values())
++
++    if not total:
++
++        return (0, 0, 0)
++
++    top_port_share = int(
++        max(ports.values()) / total * 100
++    )
++
++    return (
++        len(servers),
++        len(ports),
++        top_port_share
++    )
++
++
++# ============================================================
++# REALITY OUTPUT
++# ============================================================
++
++def write_reality_output(configs):
++    """
++    Publish a subscription containing only VLESS + Reality.
++
++    Reality currently offers the strongest resistance to
++    filtering, so it is exposed as its own link for users who
++    want only the most resilient nodes.
++    """
++
++    reality = []
++
++    for config in configs:
++
++        node = converters.parse_config(
++            config
++        )
++
++        if not node:
++            continue
++
++        if node.get("protocol") != "vless":
++            continue
++
++        if node.get("security") != "reality":
++            continue
++
++        reality.append(config)
++
++    if not reality:
++
++        print("Reality: 0 نود")
++
++        return 0
++
++    lines = add_hiddify_metadata(
++        reality
++    )
++
++    content = "\n".join(lines)
++
++    write_file(
++        os.path.join(
++            OUTPUT_DIR,
++            REALITY_FILE
++        ),
++        content
++    )
++
++    write_file(
++        os.path.join(
++            OUTPUT_DIR,
++            REALITY_BASE64_FILE
++        ),
++        base64.b64encode(
++            content.encode("utf-8")
++        ).decode("utf-8")
++    )
++
++    print(
++        f"Reality: {len(reality)} نود"
++    )
++
++    return len(reality)
++
++
++# ============================================================
++# CLIENT FORMAT OUTPUTS
++# ============================================================
++
++def write_client_formats(all_configs):
++    """
++    Generate ready to use profiles for specific clients.
++
++    Produces:
++        outputs/clash.yaml    -> Clash Meta / Mihomo / FlClash
++        outputs/singbox.json  -> sing-box / Hiddify Next
++
++    Not every config can be represented in every client, so a
++    node that a client cannot express is skipped for that
++    client only and still stays in the universal
++    subscription files.
++    """
++
++    proxies = []
++    outbounds = []
++
++    used_names = set()
++
++    parse_failed = 0
++
++    for config in all_configs:
++
++        node = converters.parse_config(
++            config
++        )
++
++        if not node:
++
++            parse_failed += 1
++
++            continue
++
++        # ----------------------------------------------------
++        # Clients require unique node names.
++        # ----------------------------------------------------
++
++        base_name = (
++            node.get("name")
++            or f"{node['protocol'].upper()} "
++               f"{node['server']}"
++        )
++
++        name = base_name
++
++        suffix = 2
++
++        while name in used_names:
++
++            name = f"{base_name} ({suffix})"
++
++            suffix += 1
++
++        used_names.add(name)
++
++        proxy = converters.to_clash_proxy(
++            node,
++            name
++        )
++
++        if proxy:
++
++            proxies.append(proxy)
++
++        outbound = converters.to_singbox_outbound(
++            node,
++            name
++        )
++
++        if outbound:
++
++            outbounds.append(outbound)
++
++    # --------------------------------------------------------
++    # CLASH META
++    # --------------------------------------------------------
++
++    if proxies:
++
++        write_file(
++            os.path.join(
++                OUTPUT_DIR,
++                CLASH_FILE
++            ),
++            converters.build_clash_yaml(
++                proxies,
++                PROFILE_TITLE
++            )
++        )
++
++    # --------------------------------------------------------
++    # SING-BOX
++    # --------------------------------------------------------
++
++    if outbounds:
++
++        write_file(
++            os.path.join(
++                OUTPUT_DIR,
++                SINGBOX_FILE
++            ),
++            converters.build_singbox_json(
++                outbounds,
++                PROFILE_TITLE
++            )
++        )
++
++    print()
++    print(
++        f"Clash Meta: {len(proxies)} نود"
++    )
++
++    print(
++        f"Sing-box: {len(outbounds)} نود"
++    )
++
++    if parse_failed:
++
++        print(
++            f"قابل تبدیل نبود: {parse_failed}"
++        )
++
++    return (
++        len(proxies),
++        len(outbounds)
++    )
++
++
++# ============================================================
++# WRITE PROTOCOL OUTPUTS
++# ============================================================
++
++def write_protocol_outputs(
++    categorized_configs
++):
++    """
++    Generate protocol-specific subscriptions.
++    """
++
++    all_configs = []
++
++    stats = []
++
++    total_active = 0
++
++    for protocol, configs in (
+         categorized_configs.items()
+     ):
+ 
+@@ -995,12 +1960,64 @@ def main():
+ 
+         return 1
+ 
++    # --------------------------------------------------------
++    # QUALITY FILTER
++    # --------------------------------------------------------
++
++    unique_configs = filter_low_quality(
++        unique_configs
++    )
++
++    # --------------------------------------------------------
++    # LIVENESS TEST
++    # --------------------------------------------------------
++
++    print()
++    print("-" * 60)
++    print("تست اتصال واقعی")
++    print("-" * 60)
++
++    (
++        unique_configs,
++        latencies
++    ) = tester.filter_alive(
++        unique_configs
++    )
++
++    if not unique_configs:
++
++        print(
++            "هیچ سرور زنده‌ای پیدا نشد."
++        )
++
++        write_file(
++            STATS_FILE,
++            (
++                "UPDATE FAILED | "
++                "No live servers"
++            )
++        )
++
++        return 1
++
++    # --------------------------------------------------------
++    # DIVERSITY LIMIT
++    #
++    # Applied after testing so that the entries kept for each
++    # server are its fastest ones.
++    # --------------------------------------------------------
++
++    unique_configs = limit_per_server(
++        unique_configs
++    )
++
+     # --------------------------------------------------------
+     # CATEGORIZE
+     # --------------------------------------------------------
+ 
+     categorized = process_and_categorize(
+-        unique_configs
++        unique_configs,
++        latencies
+     )
+ 
+     total_valid = sum(
+@@ -1079,6 +2096,39 @@ def main():
+         main_base64
+     )
+ 
++    # --------------------------------------------------------
++    # CLIENT PROFILES
++    # --------------------------------------------------------
++
++    (
++        clash_count,
++        singbox_count
++    ) = write_client_formats(
++        all_configs
++    )
++
++    reality_count = write_reality_output(
++        all_configs
++    )
++
++    # --------------------------------------------------------
++    # DIVERSITY REPORT
++    # --------------------------------------------------------
++
++    (
++        unique_servers,
++        unique_ports,
++        top_port_share
++    ) = diversity_report(
++        all_configs
++    )
++
++    print(
++        f"تنوع: {unique_servers} سرور یکتا | "
++        f"{unique_ports} پورت | "
++        f"پرتکرارترین پورت {top_port_share}%"
++    )
++
+     # --------------------------------------------------------
+     # STATS
+     # --------------------------------------------------------
+@@ -1086,6 +2136,11 @@ def main():
+     stats_text = (
+         f"Total Active: {total_active} | "
+         + " | ".join(stats)
++        + f" | Clash: {clash_count}"
++        + f" | SingBox: {singbox_count}"
++        + f" | Reality: {reality_count}"
++        + f" | Servers: {unique_servers}"
++        + f" | Tested: {'yes' if tester.is_enabled() else 'no'}"
+         + f" | Links: {len(links)}"
+         + f" | Successful: {successful_links}"
+         + f" | Failed: {failed_links}"
+diff --git a/popvpn-update.zip b/popvpn-update.zip
+new file mode 100644
+index 0000000..0072a1e
+Binary files /dev/null and b/popvpn-update.zip differ
+diff --git a/requirements.txt b/requirements.txt
+index f229360..0d82dba 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1 +1,5 @@
+ requests
++
++# فقط برای اعتبارسنجی outputs/clash.yaml در Workflow استفاده می‌شود.
++# خود main.py هیچ وابستگی به YAML ندارد.
++PyYAML
+diff --git a/tester.py b/tester.py
+new file mode 100644
+index 0000000..65ccc47
+--- /dev/null
++++ b/tester.py
+@@ -0,0 +1,594 @@
++"""
++POPVPN — تست واقعی زنده بودن سرورها.
++
++این ماژول برای هر کانفیگ یک اتصال TCP واقعی برقرار می‌کند و
++تأخیر (latency) را اندازه می‌گیرد. کانفیگ‌هایی که پاسخ ندهند
++حذف می‌شوند و بقیه از سریع‌ترین به کندترین مرتب می‌شوند.
++
++نکته مهم درباره‌ی محدودیت این تست:
++
++    یک اتصال موفق TCP فقط ثابت می‌کند که «سرور در آن پورت
++    در دسترس است»، نه اینکه «پروکسی با کلید شما کار می‌کند».
++    برای کانفیگ‌هایی که پشت CDN (مثل Cloudflare) هستند، پورت
++    ۴۴۳ همیشه باز است حتی اگر خود Worker از کار افتاده باشد.
++
++    بنابراین این مرحله سرورهای «قطعاً مرده» را حذف می‌کند که
++    بخش بزرگی از کانفیگ‌های بی‌کیفیت را می‌گیرد، اما تضمین
++    صددرصدی کارکرد نیست. تست کامل نیازمند اجرای Xray/sing-box
++    و عبور دادن ترافیک واقعی است.
++
++فقط از کتابخانه استاندارد استفاده می‌شود تا وابستگی جدیدی به
++پروژه اضافه نشود.
++"""
++
++import concurrent.futures
++import os
++import socket
++import ssl
++import time
++
++import converters
++
++
++# ============================================================
++# CONFIGURATION
++# ============================================================
++
++# مهلت هر اتصال TCP (ثانیه)
++DEFAULT_TIMEOUT = 3.0
++
++# تعداد اتصال هم‌زمان.
++# مقدار بالا سرعت را زیاد می‌کند ولی روی Runner ضعیف باعث
++# خطای کاذب می‌شود؛ ۱۰۰ نقطه‌ی تعادل خوبی است.
++DEFAULT_WORKERS = 100
++
++# سقف تعداد کانفیگ‌هایی که تست می‌شوند.
++# صفر یعنی بدون محدودیت.
++DEFAULT_MAX_TEST = 0
++
++# اگر کمتر از این نسبت از کانفیگ‌ها زنده تشخیص داده شوند،
++# نتیجه مشکوک است (مثلاً شبکه‌ی Runner مسدود شده) و تست
++# نادیده گرفته می‌شود تا Subscription خالی منتشر نشود.
++MIN_SURVIVAL_RATIO = 0.05
++
++# آیا علاوه بر TCP، دست‌دادن TLS هم انجام شود؟
++#
++# پیش‌فرض خاموش است و این یک انتخاب عمدی است:
++# بعضی سرورهای سالم (مخصوصاً پشت CDN یا با پیکربندی‌های
++# غیرمعمول) دست‌دادن TLS استاندارد را کامل نمی‌کنند و روشن
++# بودن این گزینه باعث حذف اشتباهِ کانفیگ‌های سالم می‌شود.
++#
++# با POPVPN_TEST_TLS=1 می‌توان آن را فعال کرد تا تست
++# سخت‌گیرانه‌تر شود.
++DEFAULT_TLS_PROBE = False
++
++
++def tls_probe_enabled():
++    """
++    Whether the stricter TLS handshake probe is enabled.
++    """
++
++    value = os.environ.get(
++        "POPVPN_TEST_TLS",
++        "1" if DEFAULT_TLS_PROBE else "0"
++    ).strip().lower()
++
++    return value in (
++        "1",
++        "true",
++        "yes",
++        "on",
++    )
++
++
++def _env_int(name, default):
++    """
++    Read an integer setting from the environment.
++    """
++
++    try:
++
++        value = os.environ.get(name, "").strip()
++
++        if not value:
++            return default
++
++        return int(value)
++
++    except Exception:
++
++        return default
++
++
++def _env_float(name, default):
++    """
++    Read a float setting from the environment.
++    """
++
++    try:
++
++        value = os.environ.get(name, "").strip()
++
++        if not value:
++            return default
++
++        return float(value)
++
++    except Exception:
++
++        return default
++
++
++def is_enabled():
++    """
++    Whether liveness testing should run.
++
++    Disabled by setting POPVPN_TEST=0, which keeps local runs
++    fast when you only want to regenerate the output files.
++    """
++
++    value = os.environ.get(
++        "POPVPN_TEST",
++        "1"
++    ).strip().lower()
++
++    return value not in (
++        "0",
++        "false",
++        "no",
++        "off",
++    )
++
++
++# ============================================================
++# DNS CACHE
++# ============================================================
++
++_dns_cache = {}
++
++
++def resolve_host(host):
++    """
++    Resolve a hostname to an IP address, with caching.
++
++    Many configs share the same domain, so caching avoids
++    hundreds of duplicate DNS lookups.
++    """
++
++    if not host:
++        return None
++
++    if host in _dns_cache:
++        return _dns_cache[host]
++
++    try:
++
++        info = socket.getaddrinfo(
++            host,
++            None,
++            socket.AF_UNSPEC,
++            socket.SOCK_STREAM
++        )
++
++        address = info[0][4][0]
++
++    except Exception:
++
++        address = None
++
++    _dns_cache[host] = address
++
++    return address
++
++
++# ============================================================
++# TCP / TLS PROBE
++# ============================================================
++
++def probe_endpoint(
++    host,
++    port,
++    timeout,
++    tls=False,
++    server_name=""
++):
++    """
++    Open a real connection and measure the latency.
++
++    Returns the round trip time in milliseconds, or None when
++    the endpoint does not answer.
++
++    When tls is true a TLS handshake is attempted as well,
++    which is a stronger signal than a bare TCP connect: a
++    server that accepts TCP but cannot complete a handshake
++    is almost certainly not a working proxy endpoint.
++    Certificate validation is intentionally disabled because
++    these servers legitimately use fake SNI values.
++    """
++
++    address = resolve_host(host)
++
++    if not address:
++        return None
++
++    try:
++
++        family = (
++            socket.AF_INET6
++            if ":" in address
++            else socket.AF_INET
++        )
++
++        start = time.monotonic()
++
++        sock = socket.socket(
++            family,
++            socket.SOCK_STREAM
++        )
++
++        sock.settimeout(timeout)
++
++        try:
++
++            sock.connect(
++                (address, port)
++            )
++
++            if tls:
++
++                context = ssl.create_default_context()
++
++                context.check_hostname = False
++                context.verify_mode = ssl.CERT_NONE
++
++                # A fake SNI is normal here, so failures to
++                # validate are expected and ignored.
++                wrapped = context.wrap_socket(
++                    sock,
++                    server_hostname=(
++                        server_name or None
++                    )
++                )
++
++                wrapped.close()
++
++                sock = None
++
++            elapsed = time.monotonic() - start
++
++            return int(elapsed * 1000)
++
++        finally:
++
++            if sock is not None:
++
++                try:
++
++                    sock.close()
++
++                except Exception:
++
++                    pass
++
++    except Exception:
++
++        return None
++
++
++# ============================================================
++# CONFIG TESTING
++# ============================================================
++
++def endpoint_of(config):
++    """
++    Extract the testable endpoint from a config.
++
++    Returns a tuple of (host, port, tls, server_name), or
++    None when the config cannot be parsed.
++    """
++
++    node = converters.parse_config(
++        config
++    )
++
++    if not node:
++        return None
++
++    host = node.get("server")
++    port = node.get("port")
++
++    if not host or not port:
++        return None
++
++    security = node.get("security", "none")
++
++    tls = (
++        security in ("tls", "reality")
++        and tls_probe_enabled()
++    )
++
++    server_name = (
++        node.get("sni")
++        or node.get("host")
++        or ""
++    )
++
++    return (
++        host,
++        int(port),
++        tls,
++        server_name
++    )
++
++
++def test_configs(
++    configs,
++    timeout=None,
++    workers=None,
++    max_test=None
++):
++    """
++    Test every config and return the ones that answered.
++
++    The result is a list of (config, latency_ms) sorted from
++    fastest to slowest.
++
++    Configs pointing at the same host and port are probed only
++    once and share the result, which cuts the work
++    dramatically because sources publish the same server under
++    many different names.
++    """
++
++    if timeout is None:
++
++        timeout = _env_float(
++            "POPVPN_TEST_TIMEOUT",
++            DEFAULT_TIMEOUT
++        )
++
++    if workers is None:
++
++        workers = _env_int(
++            "POPVPN_TEST_WORKERS",
++            DEFAULT_WORKERS
++        )
++
++    if max_test is None:
++
++        max_test = _env_int(
++            "POPVPN_TEST_MAX",
++            DEFAULT_MAX_TEST
++        )
++
++    if max_test and len(configs) > max_test:
++
++        print(
++            f"محدود شده به {max_test} کانفیگ برای تست."
++        )
++
++        configs = configs[:max_test]
++
++    # --------------------------------------------------------
++    # Group configs by endpoint.
++    # --------------------------------------------------------
++
++    endpoints = {}
++
++    unparsed = []
++
++    for config in configs:
++
++        endpoint = endpoint_of(config)
++
++        if not endpoint:
++
++            unparsed.append(config)
++
++            continue
++
++        endpoints.setdefault(
++            endpoint,
++            []
++        ).append(config)
++
++    print(
++        f"تست {len(configs)} کانفیگ "
++        f"روی {len(endpoints)} سرور یکتا..."
++    )
++
++    if not endpoints:
++
++        return (
++            [],
++            unparsed
++        )
++
++    # --------------------------------------------------------
++    # Probe every unique endpoint in parallel.
++    # --------------------------------------------------------
++
++    results = {}
++
++    started = time.monotonic()
++
++    with concurrent.futures.ThreadPoolExecutor(
++        max_workers=min(
++            workers,
++            len(endpoints)
++        )
++    ) as executor:
++
++        futures = {
++            executor.submit(
++                probe_endpoint,
++                host,
++                port,
++                timeout,
++                tls,
++                server_name
++            ): (host, port, tls, server_name)
++            for (
++                host,
++                port,
++                tls,
++                server_name
++            ) in endpoints
++        }
++
++        for future in concurrent.futures.as_completed(
++            futures
++        ):
++
++            endpoint = futures[future]
++
++            try:
++
++                latency = future.result()
++
++            except Exception:
++
++                latency = None
++
++            if latency is not None:
++
++                results[endpoint] = latency
++
++    duration = time.monotonic() - started
++
++    # --------------------------------------------------------
++    # Collect the configs whose endpoint answered.
++    # --------------------------------------------------------
++
++    alive = []
++
++    for endpoint, group in endpoints.items():
++
++        latency = results.get(endpoint)
++
++        if latency is None:
++            continue
++
++        for config in group:
++
++            alive.append(
++                (config, latency)
++            )
++
++    alive.sort(
++        key=lambda item: item[1]
++    )
++
++    print(
++        f"زنده: {len(alive)} از {len(configs)} "
++        f"در {duration:.1f} ثانیه"
++    )
++
++    if results:
++
++        fastest = min(results.values())
++        slowest = max(results.values())
++
++        print(
++            f"سریع‌ترین: {fastest}ms | "
++            f"کندترین: {slowest}ms"
++        )
++
++    return (
++        alive,
++        unparsed
++    )
++
++
++def filter_alive(configs):
++    """
++    Test configs and return only the live ones, fastest first.
++
++    Returns a tuple of (ordered_configs, latency_by_config).
++
++    Includes a safety net: when the survival ratio is
++    implausibly low the network of the runner is probably
++    blocked, so the original list is returned untouched rather
++    than publishing an almost empty subscription.
++    """
++
++    if not configs:
++
++        return (
++            configs,
++            {}
++        )
++
++    if not is_enabled():
++
++        print(
++            "تست اتصال غیرفعال است (POPVPN_TEST=0)."
++        )
++
++        return (
++            configs,
++            {}
++        )
++
++    alive, unparsed = test_configs(
++        configs
++    )
++
++    ratio = (
++        len(alive) / len(configs)
++        if configs
++        else 0
++    )
++
++    if ratio < MIN_SURVIVAL_RATIO:
++
++        print()
++        print(
++            "هشدار: نسبت سرورهای زنده غیرعادی پایین است "
++            f"({ratio:.1%})."
++        )
++
++        print(
++            "احتمالاً شبکه‌ی اجراکننده مسدود است؛ "
++            "نتیجه‌ی تست نادیده گرفته شد."
++        )
++
++        return (
++            configs,
++            {}
++        )
++
++    ordered = [
++        config
++        for config, _ in alive
++    ]
++
++    latencies = {
++        config: latency
++        for config, latency in alive
++    }
++
++    # Configs that could not be parsed are kept at the end so
++    # that an unusual but valid format is never silently lost.
++    ordered.extend(unparsed)
++
++    return (
++        ordered,
++        latencies
++    )
++
++
++def latency_map(configs):
++    """
++    Return a mapping of config -> latency in milliseconds.
++
++    Used to annotate node names with their measured speed.
++    """
++
++    alive, _ = test_configs(
++        configs
++    )
++
++    return {
++        config: latency
++        for config, latency in alive
++    }
